@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>RepoStats Dashboard</h1>
+<div id="scan-status">
+{% include "partials/scan_status.html" %}
+</div>
+<div id="dashboard-content" hx-target="this" hx-swap="innerHTML">
+{% include "partials/dashboard_content.html" %}
+</div>
+{% endblock %}

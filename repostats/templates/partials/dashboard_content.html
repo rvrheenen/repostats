@@ -1,0 +1,6 @@
+<div id="dashboard-content">
+  <p>Commits: {{ stats.total_commits }} | LOC: {{ total_loc }}</p>
+  <p>Contributors (30d): {{ stats.active_contributors_30d }} | Bus factor: {{ stats.bus_factor }}</p>
+  <p>Repos: {{ selected_repos|join(', ') }}</p>
+  <p>Time range: {{ time_range }}</p>
+</div>

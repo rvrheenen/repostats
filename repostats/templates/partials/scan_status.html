@@ -1,0 +1,7 @@
+{% set scanning = scan_status|selectattr('status', 'eq', 'scanning')|list %}
+<div id="scan-status" {% if scanning %}hx-get="/api/scan-status" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+{% for s in scan_status %}
+  <span>{{ s.repo }}: {{ s.status }}
+  {%- if s.total_commits %} ({{ s.commit_count }}/{{ s.total_commits }}){% endif %}</span>
+{% endfor %}
+</div>
