@@ -1,0 +1,52 @@
+<div class="file-health-grid">
+
+    {# ---- File Age Distribution ---- #}
+    <div class="pattern-section">
+        <h3 class="section-subtitle">File Age Distribution</h3>
+        <script type="application/json" id="file-age-data">{{ file_age_distribution | tojson }}</script>
+        {% if file_age_distribution | sum(attribute='count') > 0 %}
+        <div class="chart-container chart-sm">
+            <canvas id="file-age-chart"></canvas>
+        </div>
+        {% else %}
+        <p class="muted">No file data yet.</p>
+        {% endif %}
+    </div>
+
+    {# ---- Stale Files ---- #}
+    <div class="pattern-section">
+        <h3 class="section-subtitle">Stale Files</h3>
+        <p class="muted" style="margin-bottom: .5rem;">Files not modified in 6+ months with 50+ LOC</p>
+        {% if stale_files %}
+        <div class="table-wrap">
+        <table class="table-compact sortable">
+            <thead>
+                <tr>
+                    <th>File</th>
+                    <th>Repo</th>
+                    <th class="num sortable-th" data-sort="num">LOC</th>
+                    <th class="sortable-th" data-sort="text">Last Modified</th>
+                    <th>Last Author</th>
+                    <th class="num sortable-th" data-sort="num">Authors</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for f in stale_files %}
+                <tr>
+                    <td class="file-path">{{ f.file_path }}</td>
+                    <td>{{ f.repo }}</td>
+                    <td class="num">{{ f.loc | commas }}</td>
+                    <td data-value="{{ f.last_commit_date }}">{{ f.last_commit_date | timeago }}</td>
+                    <td>{{ f.last_author }}</td>
+                    <td class="num">{{ f.author_count }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <p class="muted">No stale files found.</p>
+        {% endif %}
+    </div>
+
+</div>

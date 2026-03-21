@@ -347,6 +347,18 @@ th {
 }
 
 /* ================================================================== */
+/*  File Health                                                        */
+/* ================================================================== */
+.file-health-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+}
+@media (max-width: 900px) {
+    .file-health-grid { grid-template-columns: 1fr; }
+}
+
+/* ================================================================== */
 /*  Sortable table headers                                             */
 /* ================================================================== */
 .sortable-th { cursor: pointer; user-select: none; }

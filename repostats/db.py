@@ -68,6 +68,22 @@ CREATE TABLE IF NOT EXISTS scan_log (
     total_commits     INTEGER,
     status            TEXT NOT NULL DEFAULT 'pending'
 );
+
+CREATE TABLE IF NOT EXISTS file_stats (
+    repo              TEXT NOT NULL,
+    file_path         TEXT NOT NULL,
+    loc               INTEGER NOT NULL DEFAULT 0,
+    language          TEXT,
+    last_commit_hash  TEXT NOT NULL,
+    last_commit_date  TEXT NOT NULL,
+    last_author       TEXT NOT NULL,
+    first_commit_date TEXT NOT NULL,
+    author_count      INTEGER NOT NULL DEFAULT 1,
+    scanned_at        TEXT NOT NULL,
+    PRIMARY KEY (repo, file_path)
+);
+CREATE INDEX IF NOT EXISTS idx_file_stats_stale ON file_stats(repo, last_commit_date);
+CREATE INDEX IF NOT EXISTS idx_file_stats_loc ON file_stats(repo, loc DESC);
 """
 
 
@@ -604,6 +620,84 @@ class Database:
         async with self.reader.execute(sql, params) as cur:
             rows = await cur.fetchall()
         return [dict(r) for r in rows]
+
+    async def get_stale_files(
+        self, repos: list[str], threshold_days: int = 180, min_loc: int = 50, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        """Files not touched in threshold_days with at least min_loc lines of code."""
+        if not repos:
+            return []
+        placeholders = ",".join("?" * len(repos))
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=threshold_days)).isoformat()
+        sql = f"""
+            SELECT repo, file_path, loc, language, last_commit_date, last_author, author_count
+            FROM file_stats
+            WHERE repo IN ({placeholders})
+              AND last_commit_date < ?
+              AND loc >= ?
+            ORDER BY loc DESC
+            LIMIT ?
+        """
+        params: list[str | int] = []
+        params.extend(repos)
+        params.append(cutoff)
+        params.append(min_loc)
+        params.append(limit)
+        async with self.reader.execute(sql, params) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def get_average_file_age(self, repos: list[str]) -> float:
+        """Mean days since last commit across all tracked files."""
+        if not repos:
+            return 0.0
+        placeholders = ",".join("?" * len(repos))
+        sql = f"""
+            SELECT AVG(julianday('now') - julianday(last_commit_date)) AS avg_age
+            FROM file_stats
+            WHERE repo IN ({placeholders})
+        """
+        async with self.reader.execute(sql, list(repos)) as cur:
+            row = await cur.fetchone()
+        return round(row["avg_age"], 1) if row and row["avg_age"] is not None else 0.0
+
+    async def get_file_age_distribution(self, repos: list[str]) -> list[dict[str, Any]]:
+        """Count of files in age buckets: <30d, 30-90d, 90-180d, 180d-1y, 1y+."""
+        if not repos:
+            return [
+                {"label": "<30d", "count": 0}, {"label": "30-90d", "count": 0},
+                {"label": "90-180d", "count": 0}, {"label": "180d-1y", "count": 0},
+                {"label": "1y+", "count": 0},
+            ]
+        placeholders = ",".join("?" * len(repos))
+        sql = f"""
+            SELECT
+                SUM(CASE WHEN age < 30 THEN 1 ELSE 0 END) AS under_30,
+                SUM(CASE WHEN age >= 30 AND age < 90 THEN 1 ELSE 0 END) AS d30_90,
+                SUM(CASE WHEN age >= 90 AND age < 180 THEN 1 ELSE 0 END) AS d90_180,
+                SUM(CASE WHEN age >= 180 AND age < 365 THEN 1 ELSE 0 END) AS d180_1y,
+                SUM(CASE WHEN age >= 365 THEN 1 ELSE 0 END) AS over_1y
+            FROM (
+                SELECT julianday('now') - julianday(last_commit_date) AS age
+                FROM file_stats
+                WHERE repo IN ({placeholders})
+            )
+        """
+        async with self.reader.execute(sql, list(repos)) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return [
+                {"label": "<30d", "count": 0}, {"label": "30-90d", "count": 0},
+                {"label": "90-180d", "count": 0}, {"label": "180d-1y", "count": 0},
+                {"label": "1y+", "count": 0},
+            ]
+        return [
+            {"label": "<30d", "count": row["under_30"] or 0},
+            {"label": "30-90d", "count": row["d30_90"] or 0},
+            {"label": "90-180d", "count": row["d90_180"] or 0},
+            {"label": "180d-1y", "count": row["d180_1y"] or 0},
+            {"label": "1y+", "count": row["over_1y"] or 0},
+        ]
 
     async def get_weekend_ratio(
         self, repos: list[str], after: str | None = None

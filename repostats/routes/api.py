@@ -49,6 +49,9 @@ async def build_dashboard_context(
     cross_repo = await db.get_cross_repo_contributors(repos, after)
     new_returning = await db.get_new_vs_returning(repos, after)
     code_to_comment_ratio = await db.get_code_to_comment_ratio(repos)
+    stale_files = await db.get_stale_files(repos)
+    avg_file_age = await db.get_average_file_age(repos)
+    file_age_distribution = await db.get_file_age_distribution(repos)
 
     return {
         "stats": stats,
@@ -68,6 +71,9 @@ async def build_dashboard_context(
         "cross_repo": cross_repo,
         "new_returning": new_returning,
         "code_to_comment_ratio": code_to_comment_ratio,
+        "stale_files": stale_files,
+        "avg_file_age": avg_file_age,
+        "file_age_distribution": file_age_distribution,
         "selected_repos": repos,
         "time_range": time_range,
         "cloc_available": cloc_available,

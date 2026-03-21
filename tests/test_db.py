@@ -435,6 +435,181 @@ async def test_code_to_comment_ratio(db: Database) -> None:
 
 
 # ------------------------------------------------------------------
+# get_stale_files
+# ------------------------------------------------------------------
+
+
+async def _insert_file_stats(
+    db: Database,
+    rows: list[tuple[str, str, int, str | None, str, str, str, str, int, str]],
+) -> None:
+    """Insert test file_stats rows."""
+    async with db.write_lock:
+        await db.writer.executemany(
+            """INSERT OR REPLACE INTO file_stats
+               (repo, file_path, loc, language,
+                last_commit_hash, last_commit_date, last_author,
+                first_commit_date, author_count, scanned_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            rows,
+        )
+        await db.writer.commit()
+
+
+@pytest.mark.asyncio
+async def test_stale_files(db: Database) -> None:
+    now = datetime.now(timezone.utc)
+    await _insert_file_stats(db, [
+        # Stale: 200 days old, 100 LOC
+        ("repo", "old_big.py", 100, "Python", "h1",
+         (now - timedelta(days=200)).isoformat(), "Alice",
+         (now - timedelta(days=500)).isoformat(), 2, now.isoformat()),
+        # Stale but small: 200 days old, 10 LOC (below min_loc=50)
+        ("repo", "old_small.py", 10, "Python", "h2",
+         (now - timedelta(days=200)).isoformat(), "Bob",
+         (now - timedelta(days=300)).isoformat(), 1, now.isoformat()),
+        # Recent: 10 days old, 500 LOC
+        ("repo", "recent.py", 500, "Python", "h3",
+         (now - timedelta(days=10)).isoformat(), "Charlie",
+         (now - timedelta(days=100)).isoformat(), 3, now.isoformat()),
+    ])
+    result = await db.get_stale_files(["repo"])
+    assert len(result) == 1
+    assert result[0]["file_path"] == "old_big.py"
+    assert result[0]["loc"] == 100
+
+
+@pytest.mark.asyncio
+async def test_average_file_age(db: Database) -> None:
+    now = datetime.now(timezone.utc)
+    await _insert_file_stats(db, [
+        ("repo", "a.py", 100, "Python", "h1",
+         (now - timedelta(days=100)).isoformat(), "Alice",
+         (now - timedelta(days=200)).isoformat(), 1, now.isoformat()),
+        ("repo", "b.py", 50, "Python", "h2",
+         (now - timedelta(days=200)).isoformat(), "Bob",
+         (now - timedelta(days=300)).isoformat(), 1, now.isoformat()),
+    ])
+    avg = await db.get_average_file_age(["repo"])
+    # Should be ~150 days (average of 100 and 200)
+    assert 145 <= avg <= 155
+
+
+@pytest.mark.asyncio
+async def test_file_age_distribution(db: Database) -> None:
+    now = datetime.now(timezone.utc)
+    await _insert_file_stats(db, [
+        # <30d
+        ("repo", "new.py", 100, "Python", "h1",
+         (now - timedelta(days=5)).isoformat(), "A",
+         (now - timedelta(days=5)).isoformat(), 1, now.isoformat()),
+        # 30-90d
+        ("repo", "mid.py", 100, "Python", "h2",
+         (now - timedelta(days=60)).isoformat(), "A",
+         (now - timedelta(days=60)).isoformat(), 1, now.isoformat()),
+        # 90-180d
+        ("repo", "older.py", 100, "Python", "h3",
+         (now - timedelta(days=120)).isoformat(), "A",
+         (now - timedelta(days=120)).isoformat(), 1, now.isoformat()),
+        # 180d-1y
+        ("repo", "stale.py", 100, "Python", "h4",
+         (now - timedelta(days=250)).isoformat(), "A",
+         (now - timedelta(days=250)).isoformat(), 1, now.isoformat()),
+        # 1y+
+        ("repo", "ancient.py", 100, "Python", "h5",
+         (now - timedelta(days=400)).isoformat(), "A",
+         (now - timedelta(days=400)).isoformat(), 1, now.isoformat()),
+    ])
+    result = await db.get_file_age_distribution(["repo"])
+    bucket_map = {b["label"]: b["count"] for b in result}
+    assert bucket_map["<30d"] == 1
+    assert bucket_map["30-90d"] == 1
+    assert bucket_map["90-180d"] == 1
+    assert bucket_map["180d-1y"] == 1
+    assert bucket_map["1y+"] == 1
+
+
+# ------------------------------------------------------------------
+# compute_file_stats
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_compute_file_stats(db: Database) -> None:
+    """compute_file_stats derives correct per-file metadata."""
+    from repostats.collector import compute_file_stats
+
+    await _insert_commits(db, [
+        ("h1", "repo", "Alice", "a@b.com", "2023-01-10T10:00:00+00:00", 10, 0, 1),
+        ("h2", "repo", "Bob", "b@b.com", "2024-06-15T10:00:00+00:00", 5, 2, 1),
+        ("h3", "repo", "Alice", "a@b.com", "2024-08-01T10:00:00+00:00", 3, 1, 1),
+    ])
+    await _insert_file_changes(db, [
+        ("repo", "h1", "main.py", 10, 0),
+        ("repo", "h2", "main.py", 5, 2),
+        ("repo", "h3", "main.py", 3, 1),
+        ("repo", "h1", "utils.py", 8, 0),
+    ])
+
+    file_loc = {"main.py": (200, "Python"), "utils.py": (50, "Python")}
+    await compute_file_stats(db, "repo", file_loc)
+
+    result = await db.get_stale_files(["repo"], threshold_days=0, min_loc=0, limit=100)
+    assert len(result) == 2
+
+    main = next(r for r in result if r["file_path"] == "main.py")
+    assert main["loc"] == 200
+    assert main["language"] == "Python"
+    assert main["author_count"] == 2  # Alice + Bob
+    assert main["last_author"] == "Alice"  # most recent commit is h3
+
+    utils = next(r for r in result if r["file_path"] == "utils.py")
+    assert utils["loc"] == 50
+    assert utils["author_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_compute_file_stats_no_cloc(db: Database) -> None:
+    """compute_file_stats with empty file_loc (cloc unavailable) includes all files with loc=0."""
+    from repostats.collector import compute_file_stats
+
+    await _insert_commits(db, [
+        ("h1", "repo", "Alice", "a@b.com", "2024-01-10T10:00:00+00:00", 10, 0, 1),
+    ])
+    await _insert_file_changes(db, [
+        ("repo", "h1", "main.py", 10, 0),
+    ])
+
+    await compute_file_stats(db, "repo", {})
+
+    result = await db.get_stale_files(["repo"], threshold_days=0, min_loc=0, limit=100)
+    assert len(result) == 1
+    assert result[0]["file_path"] == "main.py"
+    assert result[0]["loc"] == 0  # no cloc data
+
+
+@pytest.mark.asyncio
+async def test_compute_file_stats_filters_deleted_files(db: Database) -> None:
+    """compute_file_stats skips files not in file_loc when cloc is available."""
+    from repostats.collector import compute_file_stats
+
+    await _insert_commits(db, [
+        ("h1", "repo", "Alice", "a@b.com", "2024-01-10T10:00:00+00:00", 10, 0, 2),
+    ])
+    await _insert_file_changes(db, [
+        ("repo", "h1", "alive.py", 5, 0),
+        ("repo", "h1", "deleted.py", 5, 0),
+    ])
+
+    # Only alive.py exists on disk (in cloc output)
+    await compute_file_stats(db, "repo", {"alive.py": (100, "Python")})
+
+    result = await db.get_stale_files(["repo"], threshold_days=0, min_loc=0, limit=100)
+    assert len(result) == 1
+    assert result[0]["file_path"] == "alive.py"
+
+
+# ------------------------------------------------------------------
 # Edge cases
 # ------------------------------------------------------------------
 
@@ -458,3 +633,6 @@ async def test_empty_repos_list(db: Database) -> None:
     assert (await db.get_new_vs_returning([], "2024-01-01"))["new"] == 0
     assert await db.get_knowledge_silos([]) == []
     assert await db.get_code_to_comment_ratio([]) == 0.0
+    assert await db.get_stale_files([]) == []
+    assert await db.get_average_file_age([]) == 0.0
+    assert len(await db.get_file_age_distribution([])) == 5

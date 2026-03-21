@@ -123,6 +123,25 @@ class LanguageBreakdown(BaseModel):
     percentage: float = 0.0
 
 
+class FileStats(BaseModel):
+    """Per-file metadata snapshot."""
+    repo: str
+    file_path: str
+    loc: int = 0
+    language: str | None = None
+    last_commit_hash: str
+    last_commit_date: str
+    last_author: str
+    first_commit_date: str
+    author_count: int = 1
+
+
+class FileAgeBucket(BaseModel):
+    """A bucket in the file age distribution histogram."""
+    label: str  # e.g. "<30d", "30-90d"
+    count: int = 0
+
+
 class CommitSizeBucket(BaseModel):
     """A bucket in the commit size histogram."""
     label: str  # e.g. "1-10", "11-50"

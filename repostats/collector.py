@@ -240,6 +240,7 @@ async def _get_last_hash(db: Database, repo: str) -> str | None:
 async def _clear_repo_data(db: Database, repo: str) -> None:
     """Clear all data for a repo (for force-push recovery)."""
     async with db.write_lock:
+        await db.writer.execute("DELETE FROM file_stats WHERE repo = ?", (repo,))
         await db.writer.execute("DELETE FROM file_coupling WHERE repo = ?", (repo,))
         await db.writer.execute("DELETE FROM file_changes WHERE repo = ?", (repo,))
         await db.writer.execute("DELETE FROM commits WHERE repo = ?", (repo,))
@@ -308,50 +309,148 @@ async def compute_file_coupling(db: Database, repo: str) -> None:
 # ------------------------------------------------------------------
 
 
-async def run_cloc(db: Database, repo_name: str, repo_path: str) -> None:
-    """Run cloc and insert a language snapshot."""
+async def run_cloc(db: Database, repo_name: str, repo_path: str) -> dict[str, tuple[int, str]]:
+    """Run cloc --by-file and insert a language snapshot.
+
+    Returns a mapping of relative_file_path -> (loc, language) for use by compute_file_stats.
+    """
+    file_loc: dict[str, tuple[int, str]] = {}
+
     proc = await asyncio.create_subprocess_exec(
-        "cloc", "--json", "--quiet", repo_path,
+        "cloc", "--by-file", "--json", "--quiet", repo_path,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
     stdout_bytes, _ = await proc.communicate()
     if proc.returncode != 0:
         logger.warning("cloc failed for %s", repo_name)
-        return
+        return file_loc
 
     try:
         data: dict[str, object] = json.loads(stdout_bytes.decode())
     except (json.JSONDecodeError, UnicodeDecodeError):
         logger.warning("failed to parse cloc output for %s", repo_name)
-        return
+        return file_loc
 
     now = datetime.now(timezone.utc).isoformat()
-    rows: list[tuple[str, str, int, int, int, int, str]] = []
-    for lang, stats in data.items():
-        if lang in ("header", "SUM"):
+    # Aggregate per-language totals for cloc_snapshots (same as before)
+    lang_totals: dict[str, dict[str, int]] = {}
+    repo_path_prefix = repo_path.rstrip("/") + "/"
+
+    for key, stats in data.items():
+        if key in ("header", "SUM"):
             continue
         if not isinstance(stats, dict):
             continue
-        rows.append((
-            repo_name, lang,
-            stats.get("code", 0),  # type: ignore[arg-type]
-            stats.get("comment", 0),  # type: ignore[arg-type]
-            stats.get("blank", 0),  # type: ignore[arg-type]
-            stats.get("nFiles", 0),  # type: ignore[arg-type]
-            now,
-        ))
+        lang: str = stats.get("language", "")  # type: ignore[assignment]
+        code: int = stats.get("code", 0)  # type: ignore[assignment]
+        comment: int = stats.get("comment", 0)  # type: ignore[assignment]
+        blank: int = stats.get("blank", 0)  # type: ignore[assignment]
 
-    if rows:
+        # key is the absolute file path — make it relative
+        rel_path = key
+        if rel_path.startswith(repo_path_prefix):
+            rel_path = rel_path[len(repo_path_prefix):]
+        file_loc[rel_path] = (code, lang)
+
+        if lang not in lang_totals:
+            lang_totals[lang] = {"code": 0, "comment": 0, "blank": 0, "files": 0}
+        lang_totals[lang]["code"] += code
+        lang_totals[lang]["comment"] += comment
+        lang_totals[lang]["blank"] += blank
+        lang_totals[lang]["files"] += 1
+
+    snapshot_rows: list[tuple[str, str, int, int, int, int, str]] = [
+        (repo_name, lang, t["code"], t["comment"], t["blank"], t["files"], now)
+        for lang, t in lang_totals.items()
+    ]
+    if snapshot_rows:
         async with db.write_lock:
             await db.writer.executemany(
                 """INSERT INTO cloc_snapshots
                        (repo, language, code, comment, blank, files, scanned_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                rows,
+                snapshot_rows,
             )
             await db.writer.commit()
-        logger.info("cloc snapshot: %d languages for %s", len(rows), repo_name)
+        logger.info("cloc snapshot: %d languages for %s", len(snapshot_rows), repo_name)
+
+    return file_loc
+
+
+async def compute_file_stats(
+    db: Database, repo_name: str, file_loc: dict[str, tuple[int, str]]
+) -> None:
+    """Derive per-file metadata from file_changes + commits and merge with cloc LOC data.
+
+    Replaces existing file_stats for the repo.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Get per-file aggregate stats from file_changes + commits
+    sql = """
+        SELECT
+            fc.file_path,
+            MIN(c.date) AS first_commit_date,
+            MAX(c.date) AS last_commit_date,
+            COUNT(DISTINCT c.author) AS author_count
+        FROM file_changes fc
+        JOIN commits c ON c.repo = fc.repo AND c.hash = fc.commit_hash
+        WHERE fc.repo = ?
+        GROUP BY fc.file_path
+    """
+    async with db.reader.execute(sql, (repo_name,)) as cur:
+        rows = await cur.fetchall()
+
+    if not rows:
+        async with db.write_lock:
+            await db.writer.execute("DELETE FROM file_stats WHERE repo = ?", (repo_name,))
+            await db.writer.commit()
+        return
+
+    # Get last commit hash + author per file using ROW_NUMBER window function
+    sql_last = """
+        SELECT file_path, commit_hash, author FROM (
+            SELECT fc.file_path, fc.commit_hash, c.author,
+                   ROW_NUMBER() OVER (PARTITION BY fc.file_path ORDER BY c.date DESC) AS rn
+            FROM file_changes fc
+            JOIN commits c ON c.repo = fc.repo AND c.hash = fc.commit_hash
+            WHERE fc.repo = ?
+        ) WHERE rn = 1
+    """
+    async with db.reader.execute(sql_last, (repo_name,)) as cur:
+        last_rows = await cur.fetchall()
+
+    last_info: dict[str, tuple[str, str]] = {}
+    for lr in last_rows:
+        last_info[lr["file_path"]] = (lr["commit_hash"], lr["author"])
+
+    insert_rows: list[tuple[str, str, int, str | None, str, str, str, str, int, str]] = []
+    for r in rows:
+        fp = r["file_path"]
+        # When cloc is available, skip files not on disk (deleted files)
+        if file_loc and fp not in file_loc:
+            continue
+        loc_val, lang_val = file_loc.get(fp, (0, None))
+        last_hash, last_author = last_info.get(fp, ("", "unknown"))
+        insert_rows.append((
+            repo_name, fp, loc_val, lang_val,
+            last_hash, r["last_commit_date"], last_author,
+            r["first_commit_date"], r["author_count"], now,
+        ))
+
+    async with db.write_lock:
+        await db.writer.execute("DELETE FROM file_stats WHERE repo = ?", (repo_name,))
+        await db.writer.executemany(
+            """INSERT INTO file_stats
+                   (repo, file_path, loc, language,
+                    last_commit_hash, last_commit_date, last_author,
+                    first_commit_date, author_count, scanned_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            insert_rows,
+        )
+        await db.writer.commit()
+    logger.info("file_stats: %d files for %s", len(insert_rows), repo_name)
 
 
 # ------------------------------------------------------------------
@@ -432,6 +531,11 @@ async def scan_repo(
             await _update_scan_log(
                 db, repo_name, commit_count=total, total_commits=total, status="done",
             )
+            # Still recompute file_stats (cloc LOC may have changed)
+            no_commit_file_loc: dict[str, tuple[int, str]] = {}
+            if cloc_available:
+                no_commit_file_loc = await run_cloc(db, repo_name, repo_path)
+            await compute_file_stats(db, repo_name, no_commit_file_loc)
             return
 
         _normalize_commits(commits, mailmap)
@@ -457,8 +561,11 @@ async def scan_repo(
 
         await compute_file_coupling(db, repo_name)
 
+        file_loc: dict[str, tuple[int, str]] = {}
         if cloc_available:
-            await run_cloc(db, repo_name, repo_path)
+            file_loc = await run_cloc(db, repo_name, repo_path)
+
+        await compute_file_stats(db, repo_name, file_loc)
 
         logger.info(
             "scan complete for %s: %d new commits (%d total in DB)",

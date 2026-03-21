@@ -44,6 +44,11 @@
     {% include "partials/change_patterns.html" %}
 </section>
 
+<section class="card full-width">
+    <h2 class="card-title">File Health</h2>
+    {% include "partials/file_health.html" %}
+</section>
+
 <!-- OOB: update scan status in the top bar on aggregate calls -->
 <div id="scan-status" hx-swap-oob="true">
 {% include "partials/scan_status.html" %}

@@ -220,12 +220,41 @@ function initCommitSizeChart() {
     });
 }
 
+/* ---- File Age Distribution (bar chart) ---- */
+function initFileAgeChart() {
+    const data = readJSON('file-age-data');
+    const canvas = document.getElementById('file-age-chart');
+    if (!data || !data.length || !canvas) return;
+    destroyChart('file-age');
+
+    charts['file-age'] = new Chart(canvas, {
+        type: 'bar',
+        data: {
+            labels: data.map(b => b.label),
+            datasets: [{
+                label: 'Files',
+                data: data.map(b => b.count),
+                backgroundColor: data.map((b, i) => {
+                    const palette = ['#10b981','#3b82f6','#f59e0b','#f97316','#ef4444'];
+                    return palette[i % palette.length];
+                }),
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true } }
+        }
+    });
+}
+
 /* ---- Init all ---- */
 function initAllCharts() {
     initTimeline();
     initHeatmap();
     initLanguageChart();
     initCommitSizeChart();
+    initFileAgeChart();
     initSortable();
 }
 document.addEventListener('DOMContentLoaded', initAllCharts);
