@@ -1,0 +1,14 @@
+[settings]
+scan_interval_minutes = 60     # How often the background collector runs
+db_path = "repostats.db"       # SQLite database location (relative to project root)
+port = 3300                    # Web UI port
+history_depth_days = 0         # 0 = full history; e.g. 365 = only import last year of commits
+mailmap_path = ""              # Path to a .mailmap file for author normalization; empty = email-based fallback
+
+[[repos]]
+name = "my-project"
+path = "/path/to/my-project"
+
+[[repos]]
+name = "another-repo"
+path = "/path/to/another-repo"

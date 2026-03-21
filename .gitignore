@@ -1,3 +1,6 @@
+# Config (contains local repo paths)
+config.toml
+
 # Database
 repostats.db
 repostats.db-wal
