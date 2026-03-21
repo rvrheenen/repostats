@@ -6,8 +6,165 @@
     <title>RepoStats</title>
     <link rel="stylesheet" href="/static/style.css">
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 </head>
 <body>
 {% block content %}{% endblock %}
+<script>
+/* ------------------------------------------------------------------ */
+/*  Chart.js helpers                                                   */
+/* ------------------------------------------------------------------ */
+const COLORS = [
+    '#3b82f6','#ef4444','#10b981','#f59e0b','#8b5cf6',
+    '#ec4899','#06b6d4','#84cc16','#f97316','#6366f1'
+];
+const charts = {};
+
+function destroyChart(id) {
+    if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+}
+
+function readJSON(id) {
+    const el = document.getElementById(id);
+    if (!el) return null;
+    try { return JSON.parse(el.textContent); } catch { return null; }
+}
+
+/* ---- Commit Timeline (stacked bar) ---- */
+function initTimeline() {
+    const data = readJSON('timeline-data');
+    const canvas = document.getElementById('timeline-chart');
+    if (!data || !data.length || !canvas) return;
+    destroyChart('timeline');
+
+    const periods = [...new Set(data.map(d => d.period))].sort();
+    const repos   = [...new Set(data.map(d => d.repo))];
+    const lookup  = {};
+    data.forEach(d => { lookup[d.period + '|' + d.repo] = d.commits; });
+
+    charts['timeline'] = new Chart(canvas, {
+        type: 'bar',
+        data: {
+            labels: periods,
+            datasets: repos.map((repo, i) => ({
+                label: repo,
+                data: periods.map(p => lookup[p + '|' + repo] || 0),
+                backgroundColor: COLORS[i % COLORS.length],
+            }))
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { position: 'top' } },
+            scales: {
+                x: { stacked: true, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 30 } },
+                y: { stacked: true, beginAtZero: true }
+            }
+        }
+    });
+}
+
+/* ---- Commit Heatmap (HTML grid) ---- */
+function initHeatmap() {
+    const data = readJSON('heatmap-data');
+    const container = document.getElementById('heatmap-grid');
+    if (!data || !container) return;
+
+    const grid = {};
+    let maxCount = 0;
+    data.forEach(d => {
+        const key = d.day_of_week + ',' + d.hour;
+        grid[key] = d.count;
+        if (d.count > maxCount) maxCount = d.count;
+    });
+
+    const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    let html = '<div class="hm-row hm-header"><span class="hm-label"></span>';
+    for (let h = 0; h < 24; h++) html += '<span class="hm-hour">' + h + '</span>';
+    html += '</div>';
+
+    days.forEach((day, di) => {
+        html += '<div class="hm-row"><span class="hm-label">' + day + '</span>';
+        for (let h = 0; h < 24; h++) {
+            const count = grid[di + ',' + h] || 0;
+            const t = maxCount > 0 ? count / maxCount : 0;
+            const bg = t === 0 ? 'var(--hm-0)' :
+                       t < 0.25 ? 'var(--hm-1)' :
+                       t < 0.5  ? 'var(--hm-2)' :
+                       t < 0.75 ? 'var(--hm-3)' : 'var(--hm-4)';
+            html += '<span class="hm-cell" style="background:' + bg + '" title="' +
+                    day + ' ' + h + ':00 — ' + count + ' commits"></span>';
+        }
+        html += '</div>';
+    });
+    container.innerHTML = html;
+}
+
+/* ---- Language Breakdown (horizontal bar) ---- */
+function initLanguageChart() {
+    const data = readJSON('language-data');
+    const canvas = document.getElementById('language-chart');
+    if (!data || !data.length || !canvas) return;
+    destroyChart('language');
+
+    charts['language'] = new Chart(canvas, {
+        type: 'bar',
+        data: {
+            labels: data.map(d => d.language),
+            datasets: [{
+                label: 'Lines of Code',
+                data: data.map(d => d.code),
+                backgroundColor: data.map((_, i) => COLORS[i % COLORS.length]),
+            }]
+        },
+        options: {
+            indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { x: { beginAtZero: true } }
+        }
+    });
+}
+
+/* ---- Commit Size Histogram ---- */
+function initCommitSizeChart() {
+    const data = readJSON('commit-size-data');
+    const canvas = document.getElementById('commit-size-chart');
+    if (!data || !data.buckets || !data.buckets.length || !canvas) return;
+    destroyChart('commit-size');
+
+    charts['commit-size'] = new Chart(canvas, {
+        type: 'bar',
+        data: {
+            labels: data.buckets.map(b => b.label),
+            datasets: [{
+                label: 'Commits',
+                data: data.buckets.map(b => b.count),
+                backgroundColor: '#3b82f6',
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true } }
+        }
+    });
+}
+
+/* ---- Init all ---- */
+function initAllCharts() {
+    initTimeline();
+    initHeatmap();
+    initLanguageChart();
+    initCommitSizeChart();
+}
+document.addEventListener('DOMContentLoaded', initAllCharts);
+document.body.addEventListener('htmx:afterSwap', () => setTimeout(initAllCharts, 50));
+
+/* ---- Sidebar helpers ---- */
+function selectAllRepos(checked) {
+    document.querySelectorAll('input[name="repos"]').forEach(cb => { cb.checked = checked; });
+    const form = document.getElementById('filter-form');
+    if (form && typeof htmx !== 'undefined') htmx.trigger(form, 'change');
+}
+</script>
 </body>
 </html>

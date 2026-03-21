@@ -1,0 +1,14 @@
+<script type="application/json" id="heatmap-data">{{ heatmap | tojson }}</script>
+{% if heatmap %}
+<div id="heatmap-grid" class="heatmap"></div>
+<div class="heatmap-legend">
+    <span class="hm-cell" style="background:var(--hm-0)"></span> 0
+    <span class="hm-cell" style="background:var(--hm-1)"></span> Low
+    <span class="hm-cell" style="background:var(--hm-2)"></span> Med
+    <span class="hm-cell" style="background:var(--hm-3)"></span> High
+    <span class="hm-cell" style="background:var(--hm-4)"></span> Max
+    <span class="heatmap-meta">Weekend: {{ weekend.weekend_ratio }}% &middot; Off-hours: {{ weekend.off_hours_ratio }}%</span>
+</div>
+{% else %}
+<p class="muted">No commit data yet.</p>
+{% endif %}

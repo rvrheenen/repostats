@@ -1,0 +1,37 @@
+<script type="application/json" id="language-data">{{ language | tojson }}</script>
+{% if language %}
+<div class="lang-grid">
+    <div class="chart-container chart-lang">
+        <canvas id="language-chart"></canvas>
+    </div>
+    <div class="lang-details">
+        <div class="table-wrap">
+        <table class="table-compact">
+            <thead>
+                <tr>
+                    <th>Language</th>
+                    <th class="num">Code</th>
+                    <th class="num">Comment</th>
+                    <th class="num">Files</th>
+                    <th class="num">%</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for l in language %}
+                <tr>
+                    <td>{{ l.language }}</td>
+                    <td class="num">{{ l.code | commas }}</td>
+                    <td class="num">{{ l.comment | commas }}</td>
+                    <td class="num">{{ l.files | commas }}</td>
+                    <td class="num">{{ l.percentage }}%</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        <p class="muted">Code-to-comment ratio: <strong>{{ code_to_comment_ratio }}</strong></p>
+    </div>
+</div>
+{% else %}
+<p class="muted">No language data yet. Is <code>cloc</code> installed?</p>
+{% endif %}

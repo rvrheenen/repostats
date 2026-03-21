@@ -1,0 +1,50 @@
+{% if contributors %}
+<div class="contrib-meta">
+    <span>Active (90d): <strong>{{ stats.active_contributors_90d }}</strong></span>
+    <span>Active (180d): <strong>{{ stats.active_contributors_180d }}</strong></span>
+    {% if cross_repo %}
+    <span>Cross-repo: <strong>{{ cross_repo | length }}</strong></span>
+    {% endif %}
+    {% if time_range != 'all' %}
+    <span>New: <strong>{{ new_returning.new }}</strong></span>
+    <span>Returning: <strong>{{ new_returning.returning }}</strong></span>
+    {% endif %}
+</div>
+
+<div class="table-wrap">
+<table>
+    <thead>
+        <tr>
+            <th>Author</th>
+            {% for repo in selected_repos %}
+            <th class="num">{{ repo }}</th>
+            {% endfor %}
+            <th class="num">Total</th>
+            <th>Tenure</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for c in contributors %}
+        <tr class="{% if loop.index > 20 %}contributor-hidden{% endif %}">
+            <td>{{ c.author }}</td>
+            {% for repo in selected_repos %}
+            <td class="num">{{ c.repo_commits.get(repo, '') }}</td>
+            {% endfor %}
+            <td class="num"><strong>{{ c.total_commits | commas }}</strong></td>
+            <td class="muted">{{ c.first_commit | shortdate }} &rarr; {{ c.last_commit | shortdate }}</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+
+{% if contributors | length > 20 %}
+<button class="btn-sm show-all-btn" onclick="
+    document.querySelectorAll('.contributor-hidden').forEach(r => r.classList.toggle('contributor-hidden'));
+    this.textContent = this.textContent === 'Show all' ? 'Show top 20' : 'Show all';
+">Show all</button>
+{% endif %}
+
+{% else %}
+<p class="muted">No contributor data yet.</p>
+{% endif %}

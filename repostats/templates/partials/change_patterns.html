@@ -1,0 +1,80 @@
+<div class="patterns-grid">
+
+    {# ---- File Hotspots ---- #}
+    <div class="pattern-section">
+        <h3 class="section-subtitle">File Hotspots</h3>
+        {% if hotspots %}
+        <div class="table-wrap">
+        <table class="table-compact">
+            <thead>
+                <tr><th>File</th><th>Repo</th><th class="num">Changes</th></tr>
+            </thead>
+            <tbody>
+            {% for h in hotspots %}
+                <tr>
+                    <td class="file-path">{{ h.file_path }}</td>
+                    <td>{{ h.repo }}</td>
+                    <td class="num">{{ h.change_count }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <p class="muted">No data yet.</p>
+        {% endif %}
+    </div>
+
+    {# ---- File Coupling ---- #}
+    <div class="pattern-section">
+        <h3 class="section-subtitle">File Coupling</h3>
+        {% if coupling %}
+        <div class="table-wrap">
+        <table class="table-compact">
+            <thead>
+                <tr><th>File A</th><th>File B</th><th>Repo</th><th class="num">Co-changes</th></tr>
+            </thead>
+            <tbody>
+            {% for c in coupling %}
+                <tr>
+                    <td class="file-path">{{ c.file_a }}</td>
+                    <td class="file-path">{{ c.file_b }}</td>
+                    <td>{{ c.repo }}</td>
+                    <td class="num">{{ c.coupling_count }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <p class="muted">No coupling data yet.</p>
+        {% endif %}
+    </div>
+
+    {# ---- Knowledge Silos ---- #}
+    <div class="pattern-section">
+        <h3 class="section-subtitle">Knowledge Silos</h3>
+        {% if silos %}
+        <div class="table-wrap">
+        <table class="table-compact">
+            <thead>
+                <tr><th>File</th><th>Repo</th><th class="num">Authors</th><th>Who</th></tr>
+            </thead>
+            <tbody>
+            {% for s in silos %}
+                <tr>
+                    <td class="file-path">{{ s.file_path }}</td>
+                    <td>{{ s.repo }}</td>
+                    <td class="num">{{ s.author_count }}</td>
+                    <td>{{ s.authors }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <p class="muted">No data yet.</p>
+        {% endif %}
+    </div>
+
+</div>

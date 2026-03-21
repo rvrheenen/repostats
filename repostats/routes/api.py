@@ -48,6 +48,7 @@ async def build_dashboard_context(
     silos = await db.get_knowledge_silos(repos)
     cross_repo = await db.get_cross_repo_contributors(repos, after)
     new_returning = await db.get_new_vs_returning(repos, after)
+    code_to_comment_ratio = await db.get_code_to_comment_ratio(repos)
 
     return {
         "stats": stats,
@@ -66,6 +67,7 @@ async def build_dashboard_context(
         "silos": silos,
         "cross_repo": cross_repo,
         "new_returning": new_returning,
+        "code_to_comment_ratio": code_to_comment_ratio,
         "selected_repos": repos,
         "time_range": time_range,
         "cloc_available": cloc_available,

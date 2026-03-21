@@ -1,0 +1,8 @@
+<script type="application/json" id="timeline-data">{{ timeline | tojson }}</script>
+{% if timeline %}
+<div class="chart-container">
+    <canvas id="timeline-chart"></canvas>
+</div>
+{% else %}
+<p class="muted">No commit data yet.</p>
+{% endif %}

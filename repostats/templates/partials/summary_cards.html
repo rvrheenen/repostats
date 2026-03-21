@@ -1,0 +1,34 @@
+<div class="summary-cards">
+    <div class="summary-card">
+        <div class="card-value">{{ total_loc | commas }}</div>
+        <div class="card-label">Lines of Code</div>
+    </div>
+    <div class="summary-card">
+        <div class="card-value">{{ stats.total_commits | commas }}</div>
+        <div class="card-label">Commits</div>
+    </div>
+    <div class="summary-card">
+        <div class="card-value">{{ stats.active_contributors_30d }}</div>
+        <div class="card-label">Active (30d)</div>
+    </div>
+    <div class="summary-card">
+        <div class="card-value">{{ stats.bus_factor }}</div>
+        <div class="card-label">Bus Factor</div>
+    </div>
+    <div class="summary-card accent-green">
+        <div class="card-value">+{{ velocity.insertions | commas }}</div>
+        <div class="card-label">Added (30d)</div>
+    </div>
+    <div class="summary-card accent-red">
+        <div class="card-value">-{{ velocity.deletions | commas }}</div>
+        <div class="card-label">Removed (30d)</div>
+    </div>
+    <div class="summary-card">
+        <div class="card-value">{% if velocity.net_growth >= 0 %}+{% endif %}{{ velocity.net_growth | commas }}</div>
+        <div class="card-label">Net Growth (30d)</div>
+    </div>
+    <div class="summary-card">
+        <div class="card-value">{{ weekend.off_hours_ratio }}%</div>
+        <div class="card-label">Off-Hours</div>
+    </div>
+</div>

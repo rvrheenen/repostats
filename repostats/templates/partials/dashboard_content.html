@@ -1,6 +1,52 @@
-<div id="dashboard-content">
-  <p>Commits: {{ stats.total_commits }} | LOC: {{ total_loc }}</p>
-  <p>Contributors (30d): {{ stats.active_contributors_30d }} | Bus factor: {{ stats.bus_factor }}</p>
-  <p>Repos: {{ selected_repos|join(', ') }}</p>
-  <p>Time range: {{ time_range }}</p>
+{% if not selected_repos %}
+<div class="empty-state">
+    <p>No repositories selected. Use the sidebar to select repos.</p>
 </div>
+{% else %}
+
+{% include "partials/summary_cards.html" %}
+
+<section class="card full-width">
+    <h2 class="card-title">Commit Timeline</h2>
+    {% include "partials/commit_timeline.html" %}
+</section>
+
+<div class="grid-2col">
+    <section class="card">
+        <h2 class="card-title">Commit Heatmap</h2>
+        {% include "partials/commit_heatmap.html" %}
+    </section>
+    <section class="card">
+        <h2 class="card-title">Commit Size Distribution</h2>
+        {% include "partials/commit_size.html" %}
+    </section>
+</div>
+
+{% if cloc_available and language %}
+<section class="card full-width">
+    <h2 class="card-title">Language Breakdown</h2>
+    {% include "partials/language_breakdown.html" %}
+</section>
+{% endif %}
+
+<section class="card full-width">
+    <h2 class="card-title">Top Contributors</h2>
+    {% include "partials/contributor_matrix.html" %}
+</section>
+
+<section class="card full-width">
+    <h2 class="card-title">Repositories</h2>
+    {% include "partials/repo_table.html" %}
+</section>
+
+<section class="card full-width">
+    <h2 class="card-title">Change Patterns</h2>
+    {% include "partials/change_patterns.html" %}
+</section>
+
+<!-- OOB: update scan status in the top bar on aggregate calls -->
+<div id="scan-status" hx-swap-oob="true">
+{% include "partials/scan_status.html" %}
+</div>
+
+{% endif %}

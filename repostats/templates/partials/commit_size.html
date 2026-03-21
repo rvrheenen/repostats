@@ -1,0 +1,12 @@
+<script type="application/json" id="commit-size-data">{{ commit_size | tojson }}</script>
+{% if commit_size.buckets %}
+<div class="commit-size-stats">
+    <span>Avg: <strong>{{ commit_size.average_size }}</strong> lines</span>
+    <span>Median: <strong>{{ commit_size.median_size }}</strong> lines</span>
+</div>
+<div class="chart-container chart-sm">
+    <canvas id="commit-size-chart"></canvas>
+</div>
+{% else %}
+<p class="muted">No commit data yet.</p>
+{% endif %}

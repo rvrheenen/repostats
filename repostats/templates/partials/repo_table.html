@@ -1,0 +1,32 @@
+{% if summaries %}
+<div class="table-wrap">
+<table>
+    <thead>
+        <tr>
+            <th>Repository</th>
+            <th class="num">Commits</th>
+            <th class="num">Insertions</th>
+            <th class="num">Deletions</th>
+            <th class="num">Contributors</th>
+            <th>First Commit</th>
+            <th>Last Commit</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for r in summaries %}
+        <tr>
+            <td>{{ r.name }}</td>
+            <td class="num">{{ r.total_commits | commas }}</td>
+            <td class="num add">+{{ r.total_insertions | commas }}</td>
+            <td class="num del">-{{ r.total_deletions | commas }}</td>
+            <td class="num">{{ r.active_contributors }}</td>
+            <td>{{ r.first_commit_date | shortdate }}</td>
+            <td>{{ r.last_commit_date | timeago }}</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+{% else %}
+<p class="muted">No commit data yet.</p>
+{% endif %}
