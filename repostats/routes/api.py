@@ -52,6 +52,8 @@ async def build_dashboard_context(
     stale_files = await db.get_stale_files(repos)
     avg_file_age = await db.get_average_file_age(repos)
     file_age_distribution = await db.get_file_age_distribution(repos)
+    directory_growth = await db.get_directory_growth(repos, after)
+    directory_activity = await db.get_directory_activity(repos, after)
 
     return {
         "stats": stats,
@@ -74,6 +76,8 @@ async def build_dashboard_context(
         "stale_files": stale_files,
         "avg_file_age": avg_file_age,
         "file_age_distribution": file_age_distribution,
+        "directory_growth": directory_growth,
+        "directory_activity": directory_activity,
         "selected_repos": repos,
         "time_range": time_range,
         "cloc_available": cloc_available,

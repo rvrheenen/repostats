@@ -610,6 +610,95 @@ async def test_compute_file_stats_filters_deleted_files(db: Database) -> None:
 
 
 # ------------------------------------------------------------------
+# directory_snapshots + get_directory_growth / get_directory_activity
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_compute_directory_snapshots(db: Database) -> None:
+    """compute_directory_snapshots aggregates by top-level directory and week."""
+    from repostats.collector import compute_directory_snapshots
+
+    # 2024-01-08 is a Monday, 2024-01-15 is also a Monday
+    await _insert_commits(db, [
+        ("h1", "repo", "Alice", "a@b.com", "2024-01-09T10:00:00+00:00", 10, 2, 2),
+        ("h2", "repo", "Bob", "b@b.com", "2024-01-10T10:00:00+00:00", 5, 1, 1),
+        ("h3", "repo", "Alice", "a@b.com", "2024-01-16T10:00:00+00:00", 3, 0, 1),
+    ])
+    await _insert_file_changes(db, [
+        ("repo", "h1", "src/main.py", 8, 2),
+        ("repo", "h1", "tests/test.py", 2, 0),
+        ("repo", "h2", "src/utils.py", 5, 1),
+        ("repo", "h3", "src/main.py", 3, 0),
+    ])
+
+    await compute_directory_snapshots(db, "repo")
+
+    growth = await db.get_directory_growth(["repo"])
+    # Expect 3 rows: src week 2024-01-08, src week 2024-01-15, tests week 2024-01-08
+    assert len(growth) == 3
+
+    # Validate exact week dates (Monday starts)
+    src_rows = [g for g in growth if g["directory"] == "src"]
+    assert len(src_rows) == 2
+    src_weeks = sorted(g["week"] for g in src_rows)
+    assert src_weeks == ["2024-01-08", "2024-01-15"]
+    total_src_ins = sum(g["insertions"] for g in src_rows)
+    assert total_src_ins == 16  # 8 + 5 + 3
+
+    tests_rows = [g for g in growth if g["directory"] == "tests"]
+    assert len(tests_rows) == 1
+    assert tests_rows[0]["week"] == "2024-01-08"
+
+    activity = await db.get_directory_activity(["repo"])
+    assert len(activity) == 2
+    # src should be top by commits (3 vs 1)
+    assert activity[0]["directory"] == "src"
+    assert activity[0]["commits"] == 3
+
+
+@pytest.mark.asyncio
+async def test_directory_snapshots_root_files(db: Database) -> None:
+    """Files without a directory separator go into '.' directory."""
+    from repostats.collector import compute_directory_snapshots
+
+    await _insert_commits(db, [
+        ("h1", "repo", "Alice", "a@b.com", "2024-01-09T10:00:00+00:00", 5, 0, 1),
+    ])
+    await _insert_file_changes(db, [
+        ("repo", "h1", "README.md", 5, 0),
+    ])
+
+    await compute_directory_snapshots(db, "repo")
+
+    growth = await db.get_directory_growth(["repo"])
+    assert len(growth) == 1
+    assert growth[0]["directory"] == "."
+
+
+@pytest.mark.asyncio
+async def test_directory_growth_with_time_filter(db: Database) -> None:
+    """get_directory_growth respects time range filter."""
+    from repostats.collector import compute_directory_snapshots
+
+    await _insert_commits(db, [
+        ("h1", "repo", "Alice", "a@b.com", "2023-01-09T10:00:00+00:00", 10, 0, 1),
+        ("h2", "repo", "Bob", "b@b.com", "2024-06-10T10:00:00+00:00", 5, 0, 1),
+    ])
+    await _insert_file_changes(db, [
+        ("repo", "h1", "src/old.py", 10, 0),
+        ("repo", "h2", "src/new.py", 5, 0),
+    ])
+
+    await compute_directory_snapshots(db, "repo")
+
+    # Only get 2024+ data
+    growth = await db.get_directory_growth(["repo"], after="2024-01-01T00:00:00")
+    assert len(growth) == 1
+    assert growth[0]["insertions"] == 5
+
+
+# ------------------------------------------------------------------
 # Edge cases
 # ------------------------------------------------------------------
 
@@ -636,3 +725,5 @@ async def test_empty_repos_list(db: Database) -> None:
     assert await db.get_stale_files([]) == []
     assert await db.get_average_file_age([]) == 0.0
     assert len(await db.get_file_age_distribution([])) == 5
+    assert await db.get_directory_growth([]) == []
+    assert await db.get_directory_activity([]) == []

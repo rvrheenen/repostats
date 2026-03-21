@@ -240,6 +240,7 @@ async def _get_last_hash(db: Database, repo: str) -> str | None:
 async def _clear_repo_data(db: Database, repo: str) -> None:
     """Clear all data for a repo (for force-push recovery)."""
     async with db.write_lock:
+        await db.writer.execute("DELETE FROM directory_snapshots WHERE repo = ?", (repo,))
         await db.writer.execute("DELETE FROM file_stats WHERE repo = ?", (repo,))
         await db.writer.execute("DELETE FROM file_coupling WHERE repo = ?", (repo,))
         await db.writer.execute("DELETE FROM file_changes WHERE repo = ?", (repo,))
@@ -302,6 +303,55 @@ async def compute_file_coupling(db: Database, repo: str) -> None:
         await db.writer.commit()
 
     logger.info("computed %d coupling pairs for %s", len(pair_counts), repo)
+
+
+# ------------------------------------------------------------------
+# Directory snapshots
+# ------------------------------------------------------------------
+
+
+async def compute_directory_snapshots(db: Database, repo: str) -> None:
+    """Compute weekly insertions/deletions per top-level directory from file_changes.
+
+    Replaces existing directory_snapshots for the repo.
+    """
+    sql = """
+        SELECT
+            CASE
+                WHEN INSTR(fc.file_path, '/') > 0
+                THEN SUBSTR(fc.file_path, 1, INSTR(fc.file_path, '/') - 1)
+                ELSE '.'
+            END AS directory,
+            strftime('%Y-%m-%d', c.date, 'weekday 0', '-6 days') AS week,
+            COUNT(DISTINCT fc.commit_hash) AS commits,
+            SUM(fc.insertions) AS insertions,
+            SUM(fc.deletions) AS deletions
+        FROM file_changes fc
+        JOIN commits c ON c.repo = fc.repo AND c.hash = fc.commit_hash
+        WHERE fc.repo = ?
+        GROUP BY directory, week
+    """
+    async with db.reader.execute(sql, (repo,)) as cur:
+        rows = await cur.fetchall()
+
+    insert_rows: list[tuple[str, str, str, int, int, int]] = [
+        (repo, r["directory"], r["week"], r["insertions"], r["deletions"], r["commits"])
+        for r in rows
+    ]
+
+    async with db.write_lock:
+        await db.writer.execute("DELETE FROM directory_snapshots WHERE repo = ?", (repo,))
+        if insert_rows:
+            await db.writer.executemany(
+                """INSERT INTO directory_snapshots
+                       (repo, directory, week, insertions, deletions, commits)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                insert_rows,
+            )
+        await db.writer.commit()
+
+    dir_count = len({r[1] for r in insert_rows})
+    logger.info("directory_snapshots: %d directories, %d weeks for %s", dir_count, len(insert_rows), repo)
 
 
 # ------------------------------------------------------------------
@@ -560,6 +610,7 @@ async def scan_repo(
         )
 
         await compute_file_coupling(db, repo_name)
+        await compute_directory_snapshots(db, repo_name)
 
         file_loc: dict[str, tuple[int, str]] = {}
         if cloc_available:

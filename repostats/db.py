@@ -84,6 +84,17 @@ CREATE TABLE IF NOT EXISTS file_stats (
 );
 CREATE INDEX IF NOT EXISTS idx_file_stats_stale ON file_stats(repo, last_commit_date);
 CREATE INDEX IF NOT EXISTS idx_file_stats_loc ON file_stats(repo, loc DESC);
+
+CREATE TABLE IF NOT EXISTS directory_snapshots (
+    repo        TEXT NOT NULL,
+    directory   TEXT NOT NULL,
+    week        TEXT NOT NULL,
+    insertions  INTEGER NOT NULL DEFAULT 0,
+    deletions   INTEGER NOT NULL DEFAULT 0,
+    commits     INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (repo, directory, week)
+);
+CREATE INDEX IF NOT EXISTS idx_directory_snapshots_repo ON directory_snapshots(repo, week);
 """
 
 
@@ -698,6 +709,64 @@ class Database:
             {"label": "180d-1y", "count": row["d180_1y"] or 0},
             {"label": "1y+", "count": row["over_1y"] or 0},
         ]
+
+    async def get_directory_growth(
+        self, repos: list[str], after: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Weekly time series of insertions/deletions per top-level directory."""
+        if not repos:
+            return []
+        placeholders = ",".join("?" * len(repos))
+        params: list[str | int] = []
+        params.extend(repos)
+        date_filter = ""
+        if after:
+            date_filter = "AND week >= ?"
+            # Convert ISO date to week start (Monday)
+            params.append(after[:10])
+        sql = f"""
+            SELECT directory, week,
+                   SUM(insertions) AS insertions,
+                   SUM(deletions) AS deletions,
+                   SUM(commits) AS commits
+            FROM directory_snapshots
+            WHERE repo IN ({placeholders}) {date_filter}
+            GROUP BY directory, week
+            ORDER BY week, directory
+        """
+        async with self.reader.execute(sql, params) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def get_directory_activity(
+        self, repos: list[str], after: str | None = None, limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """Top-level directories ranked by total activity."""
+        if not repos:
+            return []
+        placeholders = ",".join("?" * len(repos))
+        params: list[str | int] = []
+        params.extend(repos)
+        date_filter = ""
+        if after:
+            date_filter = "AND week >= ?"
+            params.append(after[:10])
+        sql = f"""
+            SELECT directory,
+                   SUM(commits) AS commits,
+                   SUM(insertions) AS insertions,
+                   SUM(deletions) AS deletions,
+                   SUM(insertions) - SUM(deletions) AS net
+            FROM directory_snapshots
+            WHERE repo IN ({placeholders}) {date_filter}
+            GROUP BY directory
+            ORDER BY commits DESC
+            LIMIT ?
+        """
+        params.append(limit)
+        async with self.reader.execute(sql, params) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
 
     async def get_weekend_ratio(
         self, repos: list[str], after: str | None = None
