@@ -16,6 +16,7 @@ DEFAULT_CONFIG_PATH = Path("config.toml")
 class RepoConfig(BaseModel):
     name: str = ""
     path: str
+    active: bool = True
 
     @field_validator("path")
     @classmethod

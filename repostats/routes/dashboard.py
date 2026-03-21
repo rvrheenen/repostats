@@ -22,7 +22,8 @@ async def dashboard(request: Request) -> Response:
     cloc_available: bool = request.app.state.cloc_available
 
     all_repos: list[str] = [r.name for r in config.repos]
-    context = await build_dashboard_context(db, all_repos, "all", cloc_available)
+    default_repos: list[str] = [r.name for r in config.repos if r.active]
+    context = await build_dashboard_context(db, default_repos, "all", cloc_available)
     context["request"] = request
     context["all_repos"] = all_repos
 
