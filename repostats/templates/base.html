@@ -235,7 +235,7 @@ function initFileAgeChart() {
                 label: 'Files',
                 data: data.map(b => b.count),
                 backgroundColor: data.map((b, i) => {
-                    const palette = ['#10b981','#3b82f6','#f59e0b','#f97316','#ef4444'];
+                    const palette = ['#10b981','#3b82f6','#06b6d4','#f59e0b','#f97316','#ef4444','#dc2626','#991b1b'];
                     return palette[i % palette.length];
                 }),
             }]
@@ -355,6 +355,17 @@ function initSortable() {
 /* ---- Sidebar helpers ---- */
 function selectAllRepos(checked) {
     document.querySelectorAll('input[name="repos"]').forEach(cb => { cb.checked = checked; });
+    const form = document.getElementById('filter-form');
+    if (form && typeof htmx !== 'undefined') htmx.trigger(form, 'change');
+}
+
+function selectDefaultRepos() {
+    const data = readJSON('default-repos-data');
+    if (!data) return;
+    const defaults = new Set(data);
+    document.querySelectorAll('input[name="repos"]').forEach(cb => {
+        cb.checked = defaults.has(cb.value);
+    });
     const form = document.getElementById('filter-form');
     if (form && typeof htmx !== 'undefined') htmx.trigger(form, 'change');
 }

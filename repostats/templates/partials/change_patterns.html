@@ -3,6 +3,7 @@
     {# ---- File Hotspots ---- #}
     <div class="pattern-section">
         <h3 class="section-subtitle">File Hotspots</h3>
+        <p class="muted" style="margin-bottom: .5rem;">Files modified most often — frequent changes may indicate high complexity or instability</p>
         {% if hotspots %}
         <div class="table-wrap">
         <table class="table-compact">
@@ -28,6 +29,7 @@
     {# ---- File Coupling ---- #}
     <div class="pattern-section">
         <h3 class="section-subtitle">File Coupling</h3>
+        <p class="muted" style="margin-bottom: .5rem;">Files that frequently change together — high coupling may signal hidden dependencies</p>
         {% if coupling %}
         <div class="table-wrap">
         <table class="table-compact">
@@ -54,6 +56,7 @@
     {# ---- Knowledge Silos ---- #}
     <div class="pattern-section">
         <h3 class="section-subtitle">Knowledge Silos</h3>
+        <p class="muted" style="margin-bottom: .5rem;">Files with only 1-2 contributors — bus factor risk if those people leave</p>
         {% if silos %}
         <div class="table-wrap">
         <table class="table-compact">

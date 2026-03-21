@@ -99,7 +99,7 @@ CREATE INDEX IF NOT EXISTS idx_directory_snapshots_repo ON directory_snapshots(r
 
 
 def _repo_filter(
-    repos: list[str], after: str | None = None
+    repos: list[str], after: str | None = None, before: str | None = None
 ) -> tuple[str, str, list[str | int]]:
     """Build WHERE clause parts for repo + optional date filtering.
 
@@ -110,8 +110,11 @@ def _repo_filter(
     params.extend(repos)
     date_filter = ""
     if after:
-        date_filter = "AND date >= ?"
+        date_filter += "AND date >= ? "
         params.append(after)
+    if before:
+        date_filter += "AND date < ? "
+        params.append(before)
     return placeholders, date_filter, params
 
 
@@ -167,12 +170,12 @@ class Database:
     # ------------------------------------------------------------------
 
     async def get_repo_summaries(
-        self, repos: list[str], after: str | None = None
+        self, repos: list[str], after: str | None = None, before: str | None = None
     ) -> list[dict[str, Any]]:
         """Per-repo summary: commits, insertions, deletions, contributors, date range."""
         if not repos:
             return []
-        placeholders, date_filter, params = _repo_filter(repos, after)
+        placeholders, date_filter, params = _repo_filter(repos, after, before)
         sql = f"""
             SELECT
                 repo AS name,
@@ -191,7 +194,7 @@ class Database:
         return [dict(r) for r in rows]
 
     async def get_aggregated_stats(
-        self, repos: list[str], after: str | None = None
+        self, repos: list[str], after: str | None = None, before: str | None = None
     ) -> dict[str, Any]:
         """Aggregated stats across selected repos."""
         empty: dict[str, Any] = {
@@ -201,7 +204,7 @@ class Database:
         }
         if not repos:
             return empty
-        placeholders, date_filter, params = _repo_filter(repos, after)
+        placeholders, date_filter, params = _repo_filter(repos, after, before)
 
         sql = f"""
             SELECT
@@ -215,17 +218,26 @@ class Database:
             row = await cur.fetchone()
         stats: dict[str, Any] = dict(row) if row else dict(empty)
 
-        # Active contributors at various windows
-        now = datetime.now(timezone.utc)
+        # Active contributors at various windows (relative to before, or now)
+        reference = datetime.now(timezone.utc)
+        if before:
+            try:
+                reference = datetime.fromisoformat(before)
+            except ValueError:
+                pass
         for days, key in [(30, "active_contributors_30d"), (90, "active_contributors_90d"), (180, "active_contributors_180d")]:
-            cutoff = (now - timedelta(days=days)).isoformat()
+            cutoff = (reference - timedelta(days=days)).isoformat()
             p: list[str | int] = []
             p.extend(repos)
             p.append(cutoff)
+            before_clause = ""
+            if before:
+                before_clause = "AND date < ?"
+                p.append(before)
             sql2 = f"""
                 SELECT COUNT(DISTINCT author) AS cnt
                 FROM commits
-                WHERE repo IN ({placeholders}) AND date >= ?
+                WHERE repo IN ({placeholders}) AND date >= ? {before_clause}
             """
             async with self.reader.execute(sql2, p) as cur:
                 r = await cur.fetchone()
@@ -273,12 +285,13 @@ class Database:
         return (row["total"] or 0) if row else 0
 
     async def get_commit_timeline(
-        self, repos: list[str], after: str | None = None, granularity: str = "weekly"
+        self, repos: list[str], after: str | None = None, before: str | None = None,
+        granularity: str = "weekly",
     ) -> list[dict[str, Any]]:
         """Commit counts per period per repo for timeline chart."""
         if not repos:
             return []
-        placeholders, date_filter, params = _repo_filter(repos, after)
+        placeholders, date_filter, params = _repo_filter(repos, after, before)
 
         if granularity == "weekly":
             period_expr = "strftime('%Y-W%W', date)"
@@ -300,12 +313,12 @@ class Database:
         return [dict(r) for r in rows]
 
     async def get_commit_heatmap(
-        self, repos: list[str], after: str | None = None
+        self, repos: list[str], after: str | None = None, before: str | None = None
     ) -> list[dict[str, Any]]:
         """Hour x day-of-week commit counts."""
         if not repos:
             return []
-        placeholders, date_filter, params = _repo_filter(repos, after)
+        placeholders, date_filter, params = _repo_filter(repos, after, before)
 
         # SQLite strftime %w: 0=Sunday, we convert to 0=Monday
         sql = f"""
@@ -322,12 +335,13 @@ class Database:
         return [dict(r) for r in rows]
 
     async def get_contributor_matrix(
-        self, repos: list[str], after: str | None = None, limit: int = 20
+        self, repos: list[str], after: str | None = None, before: str | None = None,
+        limit: int = 20,
     ) -> list[dict[str, Any]]:
         """Top contributors with per-repo commit counts and lines changed."""
         if not repos:
             return []
-        placeholders, date_filter, params = _repo_filter(repos, after)
+        placeholders, date_filter, params = _repo_filter(repos, after, before)
 
         # Single query: top N authors with per-repo breakdown
         sql = f"""
@@ -387,12 +401,12 @@ class Database:
         return result
 
     async def get_cross_repo_contributors(
-        self, repos: list[str], after: str | None = None
+        self, repos: list[str], after: str | None = None, before: str | None = None
     ) -> list[dict[str, Any]]:
         """Contributors active in multiple repos."""
         if not repos:
             return []
-        placeholders, date_filter, params = _repo_filter(repos, after)
+        placeholders, date_filter, params = _repo_filter(repos, after, before)
         sql = f"""
             SELECT author, COUNT(DISTINCT repo) AS repo_count, COUNT(*) AS total_commits
             FROM commits
@@ -406,7 +420,7 @@ class Database:
         return [dict(r) for r in rows]
 
     async def get_new_vs_returning(
-        self, repos: list[str], after: str | None = None
+        self, repos: list[str], after: str | None = None, before: str | None = None
     ) -> dict[str, int]:
         """New vs returning contributors in the given period."""
         if not repos or not after:
@@ -414,26 +428,32 @@ class Database:
         placeholders = ",".join("?" * len(repos))
 
         # Authors who committed in period
-        sql_period = f"""
-            SELECT DISTINCT author FROM commits
-            WHERE repo IN ({placeholders}) AND date >= ?
-        """
+        before_clause = ""
         period_params: list[str | int] = []
         period_params.extend(repos)
         period_params.append(after)
+        if before:
+            before_clause = "AND date < ?"
+            period_params.append(before)
+        sql_period = f"""
+            SELECT DISTINCT author FROM commits
+            WHERE repo IN ({placeholders}) AND date >= ? {before_clause}
+        """
         async with self.reader.execute(sql_period, period_params) as cur:
             period_authors = {r["author"] for r in await cur.fetchall()}
 
-        # Authors who committed before period
+        # Authors who committed before period start
+        before_params: list[str | int] = list(repos)
+        before_params.append(after)
         sql_before = f"""
             SELECT DISTINCT author FROM commits
             WHERE repo IN ({placeholders}) AND date < ?
         """
-        async with self.reader.execute(sql_before, period_params) as cur:
-            before_authors = {r["author"] for r in await cur.fetchall()}
+        async with self.reader.execute(sql_before, before_params) as cur:
+            prior_authors = {r["author"] for r in await cur.fetchall()}
 
-        new = period_authors - before_authors
-        returning = period_authors & before_authors
+        new = period_authors - prior_authors
+        returning = period_authors & prior_authors
         return {"new": len(new), "returning": len(returning)}
 
     async def get_language_breakdown(self, repos: list[str]) -> list[dict[str, Any]]:
@@ -485,7 +505,8 @@ class Database:
         return round(row["code"] / row["comment"], 1)
 
     async def get_file_hotspots(
-        self, repos: list[str], after: str | None = None, limit: int = 20
+        self, repos: list[str], after: str | None = None, before: str | None = None,
+        limit: int = 20,
     ) -> list[dict[str, Any]]:
         """Most frequently modified files."""
         if not repos:
@@ -494,13 +515,19 @@ class Database:
         fc_date_filter = ""
         params: list[str | int] = []
         params.extend(repos)
+        date_conds: list[str] = []
         if after:
-            fc_date_filter = """
+            date_conds.append("date >= ?")
+            params.append(after)
+        if before:
+            date_conds.append("date < ?")
+            params.append(before)
+        if date_conds:
+            fc_date_filter = f"""
                 AND commit_hash IN (
-                    SELECT hash FROM commits WHERE repo = file_changes.repo AND date >= ?
+                    SELECT hash FROM commits WHERE repo = file_changes.repo AND {' AND '.join(date_conds)}
                 )
             """
-            params.append(after)
 
         sql = f"""
             SELECT repo, file_path, COUNT(*) AS change_count
@@ -537,12 +564,12 @@ class Database:
         return [dict(r) for r in rows]
 
     async def get_commit_size_stats(
-        self, repos: list[str], after: str | None = None
+        self, repos: list[str], after: str | None = None, before: str | None = None
     ) -> dict[str, Any]:
         """Average commit size and distribution histogram."""
         if not repos:
             return {"average_size": 0, "median_size": 0, "buckets": []}
-        placeholders, date_filter, params = _repo_filter(repos, after)
+        placeholders, date_filter, params = _repo_filter(repos, after, before)
 
         sql = f"""
             SELECT insertions + deletions AS size
@@ -673,13 +700,15 @@ class Database:
         return round(row["avg_age"], 1) if row and row["avg_age"] is not None else 0.0
 
     async def get_file_age_distribution(self, repos: list[str]) -> list[dict[str, Any]]:
-        """Count of files in age buckets: <30d, 30-90d, 90-180d, 180d-1y, 1y+."""
+        """Count of files in age buckets."""
+        empty = [
+            {"label": "<30d", "count": 0}, {"label": "30-90d", "count": 0},
+            {"label": "90-180d", "count": 0}, {"label": "180d-1y", "count": 0},
+            {"label": "1-2y", "count": 0}, {"label": "2-3y", "count": 0},
+            {"label": "3-5y", "count": 0}, {"label": "5y+", "count": 0},
+        ]
         if not repos:
-            return [
-                {"label": "<30d", "count": 0}, {"label": "30-90d", "count": 0},
-                {"label": "90-180d", "count": 0}, {"label": "180d-1y", "count": 0},
-                {"label": "1y+", "count": 0},
-            ]
+            return empty
         placeholders = ",".join("?" * len(repos))
         sql = f"""
             SELECT
@@ -687,7 +716,10 @@ class Database:
                 SUM(CASE WHEN age >= 30 AND age < 90 THEN 1 ELSE 0 END) AS d30_90,
                 SUM(CASE WHEN age >= 90 AND age < 180 THEN 1 ELSE 0 END) AS d90_180,
                 SUM(CASE WHEN age >= 180 AND age < 365 THEN 1 ELSE 0 END) AS d180_1y,
-                SUM(CASE WHEN age >= 365 THEN 1 ELSE 0 END) AS over_1y
+                SUM(CASE WHEN age >= 365 AND age < 730 THEN 1 ELSE 0 END) AS y1_2,
+                SUM(CASE WHEN age >= 730 AND age < 1095 THEN 1 ELSE 0 END) AS y2_3,
+                SUM(CASE WHEN age >= 1095 AND age < 1825 THEN 1 ELSE 0 END) AS y3_5,
+                SUM(CASE WHEN age >= 1825 THEN 1 ELSE 0 END) AS over_5y
             FROM (
                 SELECT julianday('now') - julianday(last_commit_date) AS age
                 FROM file_stats
@@ -697,21 +729,20 @@ class Database:
         async with self.reader.execute(sql, list(repos)) as cur:
             row = await cur.fetchone()
         if not row:
-            return [
-                {"label": "<30d", "count": 0}, {"label": "30-90d", "count": 0},
-                {"label": "90-180d", "count": 0}, {"label": "180d-1y", "count": 0},
-                {"label": "1y+", "count": 0},
-            ]
+            return empty
         return [
             {"label": "<30d", "count": row["under_30"] or 0},
             {"label": "30-90d", "count": row["d30_90"] or 0},
             {"label": "90-180d", "count": row["d90_180"] or 0},
             {"label": "180d-1y", "count": row["d180_1y"] or 0},
-            {"label": "1y+", "count": row["over_1y"] or 0},
+            {"label": "1-2y", "count": row["y1_2"] or 0},
+            {"label": "2-3y", "count": row["y2_3"] or 0},
+            {"label": "3-5y", "count": row["y3_5"] or 0},
+            {"label": "5y+", "count": row["over_5y"] or 0},
         ]
 
     async def get_directory_growth(
-        self, repos: list[str], after: str | None = None
+        self, repos: list[str], after: str | None = None, before: str | None = None
     ) -> list[dict[str, Any]]:
         """Weekly time series of insertions/deletions per top-level directory."""
         if not repos:
@@ -721,9 +752,11 @@ class Database:
         params.extend(repos)
         date_filter = ""
         if after:
-            date_filter = "AND week >= ?"
-            # Convert ISO date to week start (Monday)
+            date_filter += "AND week >= ? "
             params.append(after[:10])
+        if before:
+            date_filter += "AND week < ? "
+            params.append(before[:10])
         sql = f"""
             SELECT directory, week,
                    SUM(insertions) AS insertions,
@@ -739,7 +772,8 @@ class Database:
         return [dict(r) for r in rows]
 
     async def get_directory_activity(
-        self, repos: list[str], after: str | None = None, limit: int = 10
+        self, repos: list[str], after: str | None = None, before: str | None = None,
+        limit: int = 10,
     ) -> list[dict[str, Any]]:
         """Top-level directories ranked by total activity."""
         if not repos:
@@ -749,8 +783,11 @@ class Database:
         params.extend(repos)
         date_filter = ""
         if after:
-            date_filter = "AND week >= ?"
+            date_filter += "AND week >= ? "
             params.append(after[:10])
+        if before:
+            date_filter += "AND week < ? "
+            params.append(before[:10])
         sql = f"""
             SELECT directory,
                    SUM(commits) AS commits,
@@ -769,7 +806,7 @@ class Database:
         return [dict(r) for r in rows]
 
     async def get_rework_ratio(
-        self, repos: list[str], after: str | None = None
+        self, repos: list[str], after: str | None = None, before: str | None = None
     ) -> dict[str, Any]:
         """Rework ratio: % of file changes where the same file was modified < 30 days prior.
 
@@ -784,13 +821,20 @@ class Database:
         # Narrow the CTE scan: only need history back to after-30d for LAG
         inner_filter = ""
         if after:
-            inner_filter = "AND c.date >= date(?, '-30 days')"
+            inner_filter += "AND c.date >= date(?, '-30 days') "
             params.append(after)
+        if before:
+            inner_filter += "AND c.date < ? "
+            params.append(before)
 
-        outer_filter = ""
+        outer_parts: list[str] = []
         if after:
-            outer_filter = "WHERE date >= ?"
+            outer_parts.append("date >= ?")
             params.append(after)
+        if before:
+            outer_parts.append("date < ?")
+            params.append(before)
+        outer_filter = "WHERE " + " AND ".join(outer_parts) if outer_parts else ""
 
         sql = f"""
             WITH ordered_changes AS (
@@ -820,12 +864,12 @@ class Database:
         return {"rework_ratio": ratio, "rework_count": rework, "total_changes": total}
 
     async def get_weekend_ratio(
-        self, repos: list[str], after: str | None = None
+        self, repos: list[str], after: str | None = None, before: str | None = None
     ) -> dict[str, float | int]:
         """Weekend and off-hours commit ratios."""
         if not repos:
             return {"weekend_ratio": 0, "off_hours_ratio": 0}
-        placeholders, date_filter, params = _repo_filter(repos, after)
+        placeholders, date_filter, params = _repo_filter(repos, after, before)
 
         sql = f"""
             SELECT
@@ -843,3 +887,35 @@ class Database:
             "weekend_ratio": round(row["weekend"] / row["total"] * 100, 1),
             "off_hours_ratio": round(row["off_hours"] / row["total"] * 100, 1),
         }
+
+    async def get_per_repo_loc(self, repos: list[str]) -> dict[str, int]:
+        """Lines of code per repo from latest cloc snapshot."""
+        if not repos:
+            return {}
+        placeholders = ",".join("?" * len(repos))
+        sql = f"""
+            SELECT repo, SUM(code) AS loc
+            FROM cloc_snapshots
+            WHERE (repo, scanned_at) IN (
+                SELECT repo, MAX(scanned_at) FROM cloc_snapshots
+                WHERE repo IN ({placeholders})
+                GROUP BY repo
+            )
+            GROUP BY repo
+        """
+        async with self.reader.execute(sql, list(repos)) as cur:
+            rows = await cur.fetchall()
+        return {r["repo"]: r["loc"] or 0 for r in rows}
+
+    async def get_year_range(self) -> tuple[int | None, int | None]:
+        """Return (min_year, max_year) from all commits, or (None, None) if empty."""
+        sql = """
+            SELECT MIN(CAST(strftime('%Y', date) AS INTEGER)) AS min_y,
+                   MAX(CAST(strftime('%Y', date) AS INTEGER)) AS max_y
+            FROM commits
+        """
+        async with self.reader.execute(sql) as cur:
+            row = await cur.fetchone()
+        if not row or row["min_y"] is None:
+            return None, None
+        return row["min_y"], row["max_y"]

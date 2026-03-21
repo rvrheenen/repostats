@@ -14,13 +14,25 @@ from repostats.db import Database
 router = APIRouter()
 
 
-def parse_time_range(time_range: str) -> str | None:
-    """Convert time range string (30d/90d/180d/1y/all) to ISO date cutoff."""
-    days_map = {"30d": 30, "90d": 90, "180d": 180, "1y": 365}
+def parse_time_range(time_range: str) -> tuple[str | None, str | None]:
+    """Convert time range string to (after, before) ISO date cutoffs.
+
+    Supports: 7d, 14d, 30d, 90d, 180d, 1y, 2y, 3y, 5y, all, yNNNN (specific year).
+    """
+    days_map = {
+        "7d": 7, "14d": 14, "30d": 30, "90d": 90, "180d": 180,
+        "1y": 365, "2y": 730, "3y": 1095, "5y": 1825,
+    }
     days = days_map.get(time_range)
-    if days is None:
-        return None
-    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    if days is not None:
+        return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(), None
+
+    # Year selection: "y2024" → 2024-01-01 to 2025-01-01
+    if time_range.startswith("y") and time_range[1:].isdigit():
+        year = int(time_range[1:])
+        return f"{year}-01-01T00:00:00+00:00", f"{year + 1}-01-01T00:00:00+00:00"
+
+    return None, None  # "all"
 
 
 async def build_dashboard_context(
@@ -30,31 +42,32 @@ async def build_dashboard_context(
     cloc_available: bool,
 ) -> dict[str, Any]:
     """Build the full dashboard template context."""
-    after = parse_time_range(time_range)
+    after, before = parse_time_range(time_range)
 
-    stats = await db.get_aggregated_stats(repos, after)
-    summaries = await db.get_repo_summaries(repos, after)
+    stats = await db.get_aggregated_stats(repos, after, before)
+    summaries = await db.get_repo_summaries(repos, after, before)
     total_loc = await db.get_total_loc(repos)
-    timeline = await db.get_commit_timeline(repos, after)
-    heatmap = await db.get_commit_heatmap(repos, after)
+    timeline = await db.get_commit_timeline(repos, after, before)
+    heatmap = await db.get_commit_heatmap(repos, after, before)
     language = await db.get_language_breakdown(repos)
-    contributors = await db.get_contributor_matrix(repos, after)
-    hotspots = await db.get_file_hotspots(repos, after)
+    contributors = await db.get_contributor_matrix(repos, after, before)
+    hotspots = await db.get_file_hotspots(repos, after, before)
     coupling = await db.get_file_coupling(repos)
-    commit_size = await db.get_commit_size_stats(repos, after)
+    commit_size = await db.get_commit_size_stats(repos, after, before)
     velocity = await db.get_velocity(repos)
-    weekend = await db.get_weekend_ratio(repos, after)
+    weekend = await db.get_weekend_ratio(repos, after, before)
     scan_status = await db.get_scan_status()
     silos = await db.get_knowledge_silos(repos)
-    cross_repo = await db.get_cross_repo_contributors(repos, after)
-    new_returning = await db.get_new_vs_returning(repos, after)
+    cross_repo = await db.get_cross_repo_contributors(repos, after, before)
+    new_returning = await db.get_new_vs_returning(repos, after, before)
     code_to_comment_ratio = await db.get_code_to_comment_ratio(repos)
     stale_files = await db.get_stale_files(repos)
     avg_file_age = await db.get_average_file_age(repos)
     file_age_distribution = await db.get_file_age_distribution(repos)
-    directory_growth = await db.get_directory_growth(repos, after)
-    directory_activity = await db.get_directory_activity(repos, after)
-    rework = await db.get_rework_ratio(repos, after)
+    directory_growth = await db.get_directory_growth(repos, after, before)
+    directory_activity = await db.get_directory_activity(repos, after, before)
+    rework = await db.get_rework_ratio(repos, after, before)
+    repo_loc = await db.get_per_repo_loc(repos)
 
     return {
         "stats": stats,
@@ -80,6 +93,7 @@ async def build_dashboard_context(
         "directory_growth": directory_growth,
         "directory_activity": directory_activity,
         "rework": rework,
+        "repo_loc": repo_loc,
         "selected_repos": repos,
         "time_range": time_range,
         "cloc_available": cloc_available,

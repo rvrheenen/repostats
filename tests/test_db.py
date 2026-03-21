@@ -526,7 +526,10 @@ async def test_file_age_distribution(db: Database) -> None:
     assert bucket_map["30-90d"] == 1
     assert bucket_map["90-180d"] == 1
     assert bucket_map["180d-1y"] == 1
-    assert bucket_map["1y+"] == 1
+    assert bucket_map["1-2y"] == 1
+    assert bucket_map.get("2-3y", 0) == 0
+    assert bucket_map.get("3-5y", 0) == 0
+    assert bucket_map.get("5y+", 0) == 0
 
 
 # ------------------------------------------------------------------
@@ -840,7 +843,7 @@ async def test_empty_repos_list(db: Database) -> None:
     assert await db.get_code_to_comment_ratio([]) == 0.0
     assert await db.get_stale_files([]) == []
     assert await db.get_average_file_age([]) == 0.0
-    assert len(await db.get_file_age_distribution([])) == 5
+    assert len(await db.get_file_age_distribution([])) == 8
     assert await db.get_directory_growth([]) == []
     assert await db.get_directory_activity([]) == []
     assert (await db.get_rework_ratio([]))["rework_ratio"] == 0.0
