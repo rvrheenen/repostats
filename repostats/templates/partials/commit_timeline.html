@@ -2,6 +2,7 @@
 {% if timeline %}
 <div class="chart-container">
     <canvas id="timeline-chart"></canvas>
+    <button id="timeline-reset-zoom" class="btn-reset-zoom" style="display:none" onclick="charts['timeline']?.resetZoom(); this.style.display='none'">Reset Zoom</button>
 </div>
 {% else %}
 <p class="muted">No commit data yet.</p>

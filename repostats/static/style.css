@@ -234,6 +234,14 @@ main {
 .chart-sm        { height: 220px; }
 .chart-lang      { height: 300px; }
 
+.btn-reset-zoom {
+    position: absolute; top: 4px; right: 4px;
+    padding: 2px 8px; font-size: .75rem;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 4px; cursor: pointer; color: var(--text-secondary);
+}
+.btn-reset-zoom:hover { color: var(--text); border-color: var(--text); }
+
 /* ================================================================== */
 /*  Tables                                                             */
 /* ================================================================== */

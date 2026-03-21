@@ -7,6 +7,8 @@
     <link rel="stylesheet" href="/static/style.css">
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2"></script>
 </head>
 <body>
 {% block content %}{% endblock %}
@@ -107,6 +109,17 @@ function initTimeline() {
                 legend: {
                     position: 'top',
                     onClick: null  /* replaced after construction */
+                },
+                zoom: {
+                    zoom: {
+                        drag: { enabled: true, backgroundColor: 'rgba(59,130,246,0.15)', borderColor: '#3b82f6', borderWidth: 1 },
+                        mode: 'x',
+                        onZoomComplete: function({chart}) {
+                            const btn = document.getElementById('timeline-reset-zoom');
+                            if (btn) btn.style.display = chart.isZoomedOrPanned() ? '' : 'none';
+                        }
+                    },
+                    limits: { x: { minRange: 2 } },
                 }
             },
             scales: {
