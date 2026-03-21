@@ -7,6 +7,11 @@
         <span class="scan-badge scanning">
             Scanning {{ s.repo }}{% if s.total_commits %}: {{ s.commit_count | commas }} / {{ s.total_commits | commas }}{% endif %}
         </span>
+        {% if s.total_commits and s.total_commits > 0 %}
+        <div class="progress-bar">
+            <div class="progress-fill" style="width: {{ (s.commit_count / s.total_commits * 100) | round(1) }}%"></div>
+        </div>
+        {% endif %}
         {% endfor %}
     {% elif done_list %}
         {% set last = done_list|sort(attribute='last_scanned_at')|last %}

@@ -155,9 +155,43 @@ function initAllCharts() {
     initHeatmap();
     initLanguageChart();
     initCommitSizeChart();
+    initSortable();
 }
 document.addEventListener('DOMContentLoaded', initAllCharts);
 document.body.addEventListener('htmx:afterSwap', () => setTimeout(initAllCharts, 50));
+
+/* ---- Sortable tables ---- */
+function initSortable() {
+    document.querySelectorAll('table.sortable').forEach(table => {
+        table.querySelectorAll('th[data-sort]').forEach((th, colIdx) => {
+            if (th.classList.contains('sort-bound')) return;
+            th.classList.add('sort-bound', 'sortable-th');
+            th.addEventListener('click', () => {
+                const tbody = table.querySelector('tbody');
+                if (!tbody) return;
+                const rows = Array.from(tbody.rows);
+                const type = th.dataset.sort;
+                const asc = th.classList.toggle('sort-asc');
+                th.closest('tr').querySelectorAll('th').forEach(h => {
+                    if (h !== th) { h.classList.remove('sort-asc', 'sort-desc'); }
+                });
+                if (!asc) th.classList.add('sort-desc'); else th.classList.remove('sort-desc');
+
+                rows.sort((a, b) => {
+                    const av = a.cells[colIdx].dataset.value ?? a.cells[colIdx].textContent.trim();
+                    const bv = b.cells[colIdx].dataset.value ?? b.cells[colIdx].textContent.trim();
+                    if (type === 'num') {
+                        return asc
+                            ? (parseFloat(av) || 0) - (parseFloat(bv) || 0)
+                            : (parseFloat(bv) || 0) - (parseFloat(av) || 0);
+                    }
+                    return asc ? av.localeCompare(bv) : bv.localeCompare(av);
+                });
+                rows.forEach(r => tbody.appendChild(r));
+            });
+        });
+    });
+}
 
 /* ---- Sidebar helpers ---- */
 function selectAllRepos(checked) {
