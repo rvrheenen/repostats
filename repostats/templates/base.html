@@ -21,13 +21,62 @@ const COLORS = [
 const charts = {};
 
 function destroyChart(id) {
-    if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+    if (charts[id]) {
+        if (charts[id]._pendingClickTimer) clearTimeout(charts[id]._pendingClickTimer);
+        charts[id].destroy();
+        delete charts[id];
+    }
 }
 
 function readJSON(id) {
     const el = document.getElementById(id);
     if (!el) return null;
     try { return JSON.parse(el.textContent); } catch { return null; }
+}
+
+/* ---- Legend double-click-to-isolate helper ---- */
+function legendDoubleClickHandler(chart, dblClickDelay) {
+    let lastClick = 0;
+    let lastIndex = -1;
+    let clickTimer = null;
+
+    return function(e, legendItem, legend) {
+        const index = legendItem.datasetIndex;
+        const now = Date.now();
+        const isDblClick = (index === lastIndex && now - lastClick < dblClickDelay);
+
+        lastClick = now;
+        lastIndex = index;
+
+        if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; chart._pendingClickTimer = null; }
+
+        if (isDblClick) {
+            /* Double-click: isolate this dataset or restore all */
+            const datasets = chart.data.datasets;
+            const onlyThisVisible = datasets.every((_, i) =>
+                i === index ? chart.isDatasetVisible(i) : !chart.isDatasetVisible(i)
+            );
+
+            if (onlyThisVisible) {
+                /* Already isolated — show all */
+                datasets.forEach((_, i) => chart.setDatasetVisibility(i, true));
+            } else {
+                /* Isolate: hide everything except clicked */
+                datasets.forEach((_, i) => chart.setDatasetVisibility(i, i === index));
+            }
+            chart.update();
+        } else {
+            /* Delay single-click to avoid firing on double-click */
+            clickTimer = setTimeout(() => {
+                clickTimer = null;
+                chart._pendingClickTimer = null;
+                if (!chart.canvas) return;  /* chart was destroyed */
+                chart.setDatasetVisibility(index, !chart.isDatasetVisible(index));
+                chart.update();
+            }, dblClickDelay);
+            chart._pendingClickTimer = clickTimer;
+        }
+    };
 }
 
 /* ---- Commit Timeline (stacked bar) ---- */
@@ -42,7 +91,7 @@ function initTimeline() {
     const lookup  = {};
     data.forEach(d => { lookup[d.period + '|' + d.repo] = d.commits; });
 
-    charts['timeline'] = new Chart(canvas, {
+    const chartInstance = new Chart(canvas, {
         type: 'bar',
         data: {
             labels: periods,
@@ -54,13 +103,22 @@ function initTimeline() {
         },
         options: {
             responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { position: 'top' } },
+            plugins: {
+                legend: {
+                    position: 'top',
+                    onClick: null  /* replaced after construction */
+                }
+            },
             scales: {
                 x: { stacked: true, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 30 } },
                 y: { stacked: true, beginAtZero: true }
             }
         }
     });
+
+    /* Wire up double-click handler now that we have the instance */
+    chartInstance.options.plugins.legend.onClick = legendDoubleClickHandler(chartInstance, 300);
+    charts['timeline'] = chartInstance;
 }
 
 /* ---- Commit Heatmap (HTML grid) ---- */
