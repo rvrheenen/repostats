@@ -54,6 +54,7 @@ async def build_dashboard_context(
     file_age_distribution = await db.get_file_age_distribution(repos)
     directory_growth = await db.get_directory_growth(repos, after)
     directory_activity = await db.get_directory_activity(repos, after)
+    rework = await db.get_rework_ratio(repos, after)
 
     return {
         "stats": stats,
@@ -78,6 +79,7 @@ async def build_dashboard_context(
         "file_age_distribution": file_age_distribution,
         "directory_growth": directory_growth,
         "directory_activity": directory_activity,
+        "rework": rework,
         "selected_repos": repos,
         "time_range": time_range,
         "cloc_available": cloc_available,

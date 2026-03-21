@@ -160,6 +160,13 @@ class DirectoryActivity(BaseModel):
     net: int = 0
 
 
+class ReworkStats(BaseModel):
+    """Rework ratio proxy: file-level churn metric."""
+    rework_ratio: float = 0.0  # percentage
+    rework_count: int = 0
+    total_changes: int = 0
+
+
 class CommitSizeBucket(BaseModel):
     """A bucket in the commit size histogram."""
     label: str  # e.g. "1-10", "11-50"

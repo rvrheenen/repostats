@@ -699,6 +699,122 @@ async def test_directory_growth_with_time_filter(db: Database) -> None:
 
 
 # ------------------------------------------------------------------
+# get_rework_ratio
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_rework_ratio(db: Database) -> None:
+    """Rework proxy: file changes where same file was modified < 30 days prior."""
+    # File A: changed on day 1 and day 15 → day 15 is rework (14 days gap)
+    # File B: changed on day 1 and day 60 → day 60 is NOT rework (59 days gap)
+    # File C: changed only once on day 1 → not rework
+    # Total file changes: 5, rework: 1 → 20%
+    await _insert_commits(db, [
+        ("h1", "repo", "Alice", "a@b.com", "2024-01-01T10:00:00+00:00", 10, 0, 3),
+        ("h2", "repo", "Bob", "b@b.com", "2024-01-15T10:00:00+00:00", 5, 0, 1),
+        ("h3", "repo", "Alice", "a@b.com", "2024-03-01T10:00:00+00:00", 3, 0, 1),
+    ])
+    await _insert_file_changes(db, [
+        ("repo", "h1", "a.py", 5, 0),
+        ("repo", "h1", "b.py", 3, 0),
+        ("repo", "h1", "c.py", 2, 0),
+        ("repo", "h2", "a.py", 5, 0),   # rework (14 days after h1)
+        ("repo", "h3", "b.py", 3, 0),   # NOT rework (59 days after h1)
+    ])
+    result = await db.get_rework_ratio(["repo"])
+    assert result["total_changes"] == 5
+    assert result["rework_count"] == 1
+    assert result["rework_ratio"] == 20.0
+
+
+@pytest.mark.asyncio
+async def test_rework_ratio_with_time_filter(db: Database) -> None:
+    """Rework ratio respects time range filter but uses full history for LAG."""
+    # h1 on Jan 1, h2 on Jan 20 (rework), h3 on Jun 1 (not rework, 132 days)
+    # Filtering to after=Feb 1 should only count h3 (not rework) → 0%
+    await _insert_commits(db, [
+        ("h1", "repo", "Alice", "a@b.com", "2024-01-01T10:00:00+00:00", 5, 0, 1),
+        ("h2", "repo", "Bob", "b@b.com", "2024-01-20T10:00:00+00:00", 5, 0, 1),
+        ("h3", "repo", "Alice", "a@b.com", "2024-06-01T10:00:00+00:00", 3, 0, 1),
+    ])
+    await _insert_file_changes(db, [
+        ("repo", "h1", "a.py", 5, 0),
+        ("repo", "h2", "a.py", 5, 0),
+        ("repo", "h3", "a.py", 3, 0),
+    ])
+    # Without filter: h2 is rework (19 days), h3 is NOT (133 days) → 1/3 = 33.3%
+    result_all = await db.get_rework_ratio(["repo"])
+    assert result_all["total_changes"] == 3
+    assert result_all["rework_count"] == 1
+    assert result_all["rework_ratio"] == 33.3
+
+    # With filter to Feb+: only h3 counted, LAG still sees h2 (133 days prior) → 0%
+    result_filtered = await db.get_rework_ratio(["repo"], after="2024-02-01T00:00:00")
+    assert result_filtered["total_changes"] == 1
+    assert result_filtered["rework_count"] == 0
+    assert result_filtered["rework_ratio"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_rework_ratio_no_changes(db: Database) -> None:
+    """Rework ratio with no file changes returns zero."""
+    result = await db.get_rework_ratio(["repo"])
+    assert result["rework_ratio"] == 0.0
+    assert result["total_changes"] == 0
+
+
+@pytest.mark.asyncio
+async def test_rework_ratio_same_day(db: Database) -> None:
+    """Two commits touching the same file on the same day counts as rework (delta=0)."""
+    await _insert_commits(db, [
+        ("h1", "repo", "Alice", "a@b.com", "2024-01-10T09:00:00+00:00", 5, 0, 1),
+        ("h2", "repo", "Bob", "b@b.com", "2024-01-10T15:00:00+00:00", 3, 0, 1),
+    ])
+    await _insert_file_changes(db, [
+        ("repo", "h1", "hot.py", 5, 0),
+        ("repo", "h2", "hot.py", 3, 0),
+    ])
+    result = await db.get_rework_ratio(["repo"])
+    assert result["total_changes"] == 2
+    assert result["rework_count"] == 1  # h2 is rework (0 days delta)
+    assert result["rework_ratio"] == 50.0
+
+
+@pytest.mark.asyncio
+async def test_rework_ratio_boundary_30_days(db: Database) -> None:
+    """File changed exactly 30 days apart should count as rework (<= 30)."""
+    await _insert_commits(db, [
+        ("h1", "repo", "Alice", "a@b.com", "2024-01-01T12:00:00+00:00", 5, 0, 1),
+        ("h2", "repo", "Bob", "b@b.com", "2024-01-31T12:00:00+00:00", 3, 0, 1),
+    ])
+    await _insert_file_changes(db, [
+        ("repo", "h1", "edge.py", 5, 0),
+        ("repo", "h2", "edge.py", 3, 0),
+    ])
+    result = await db.get_rework_ratio(["repo"])
+    assert result["rework_count"] == 1  # exactly 30 days → rework
+
+
+@pytest.mark.asyncio
+async def test_rework_ratio_multi_repo_isolation(db: Database) -> None:
+    """LAG partitions by (repo, file_path) — repos don't bleed into each other."""
+    # a.py in repoA changed on Jan 1, a.py in repoB changed on Jan 10
+    # These should NOT be treated as rework of the same file
+    await _insert_commits(db, [
+        ("h1", "repoA", "Alice", "a@b.com", "2024-01-01T10:00:00+00:00", 5, 0, 1),
+        ("h2", "repoB", "Bob", "b@b.com", "2024-01-10T10:00:00+00:00", 3, 0, 1),
+    ])
+    await _insert_file_changes(db, [
+        ("repoA", "h1", "a.py", 5, 0),
+        ("repoB", "h2", "a.py", 3, 0),
+    ])
+    result = await db.get_rework_ratio(["repoA", "repoB"])
+    assert result["total_changes"] == 2
+    assert result["rework_count"] == 0  # different repos, no rework
+
+
+# ------------------------------------------------------------------
 # Edge cases
 # ------------------------------------------------------------------
 
@@ -727,3 +843,4 @@ async def test_empty_repos_list(db: Database) -> None:
     assert len(await db.get_file_age_distribution([])) == 5
     assert await db.get_directory_growth([]) == []
     assert await db.get_directory_activity([]) == []
+    assert (await db.get_rework_ratio([]))["rework_ratio"] == 0.0

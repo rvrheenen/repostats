@@ -768,6 +768,57 @@ class Database:
             rows = await cur.fetchall()
         return [dict(r) for r in rows]
 
+    async def get_rework_ratio(
+        self, repos: list[str], after: str | None = None
+    ) -> dict[str, Any]:
+        """Rework ratio: % of file changes where the same file was modified < 30 days prior.
+
+        Uses LAG window function over the full history per (repo, file_path) so
+        that changes at the start of the filtered period still detect prior edits.
+        """
+        if not repos:
+            return {"rework_ratio": 0.0, "rework_count": 0, "total_changes": 0}
+        placeholders = ",".join("?" * len(repos))
+        params: list[str | int] = list(repos)
+
+        # Narrow the CTE scan: only need history back to after-30d for LAG
+        inner_filter = ""
+        if after:
+            inner_filter = "AND c.date >= date(?, '-30 days')"
+            params.append(after)
+
+        outer_filter = ""
+        if after:
+            outer_filter = "WHERE date >= ?"
+            params.append(after)
+
+        sql = f"""
+            WITH ordered_changes AS (
+                SELECT fc.repo, fc.file_path, c.date,
+                       LAG(c.date) OVER (
+                           PARTITION BY fc.repo, fc.file_path
+                           ORDER BY c.date, c.hash
+                       ) AS prev_date
+                FROM file_changes fc
+                JOIN commits c ON c.repo = fc.repo AND c.hash = fc.commit_hash
+                WHERE fc.repo IN ({placeholders}) {inner_filter}
+            )
+            SELECT
+                COUNT(*) AS total_changes,
+                SUM(CASE WHEN prev_date IS NOT NULL
+                          AND julianday(date) - julianday(prev_date) <= 30
+                     THEN 1 ELSE 0 END) AS rework_count
+            FROM ordered_changes
+            {outer_filter}
+        """
+        async with self.reader.execute(sql, params) as cur:
+            row = await cur.fetchone()
+
+        total = row["total_changes"] if row else 0
+        rework = row["rework_count"] if row else 0
+        ratio = round(rework / total * 100, 1) if total > 0 else 0.0
+        return {"rework_ratio": ratio, "rework_count": rework, "total_changes": total}
+
     async def get_weekend_ratio(
         self, repos: list[str], after: str | None = None
     ) -> dict[str, float | int]:
