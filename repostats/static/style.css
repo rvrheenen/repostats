@@ -220,6 +220,7 @@ main {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 1.25rem;
+    align-items: stretch;
 }
 .patterns-grid {
     display: grid;
@@ -232,7 +233,7 @@ main {
 /* ================================================================== */
 .chart-container { position: relative; height: 280px; }
 .chart-sm        { height: 220px; }
-.chart-lang      { height: 300px; }
+.chart-lang      { height: auto; min-height: 300px; }
 
 .btn-reset-zoom {
     position: absolute; top: 4px; right: 4px;
