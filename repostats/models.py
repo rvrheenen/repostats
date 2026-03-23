@@ -142,23 +142,6 @@ class FileAgeBucket(BaseModel):
     count: int = 0
 
 
-class DirectoryGrowthPoint(BaseModel):
-    """A single data point for the directory growth chart."""
-    directory: str
-    week: str  # ISO week start date, e.g. "2025-03-17"
-    insertions: int = 0
-    deletions: int = 0
-    commits: int = 0
-
-
-class DirectoryActivity(BaseModel):
-    """A top-level directory ranked by activity."""
-    directory: str
-    commits: int = 0
-    insertions: int = 0
-    deletions: int = 0
-    net: int = 0
-
 
 class ReworkStats(BaseModel):
     """Rework ratio proxy: file-level churn metric."""

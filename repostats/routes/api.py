@@ -64,8 +64,6 @@ async def build_dashboard_context(
     stale_files = await db.get_stale_files(repos)
     avg_file_age = await db.get_average_file_age(repos)
     file_age_distribution = await db.get_file_age_distribution(repos)
-    directory_growth = await db.get_directory_growth(repos, after, before)
-    directory_activity = await db.get_directory_activity(repos, after, before)
     rework = await db.get_rework_ratio(repos, after, before)
     repo_loc = await db.get_per_repo_loc(repos)
 
@@ -90,8 +88,6 @@ async def build_dashboard_context(
         "stale_files": stale_files,
         "avg_file_age": avg_file_age,
         "file_age_distribution": file_age_distribution,
-        "directory_growth": directory_growth,
-        "directory_activity": directory_activity,
         "rework": rework,
         "repo_loc": repo_loc,
         "selected_repos": repos,
