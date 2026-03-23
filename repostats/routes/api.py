@@ -114,10 +114,9 @@ async def aggregate(
     all_repos: list[str] = [r.name for r in config.repos]
 
     context = await build_dashboard_context(db, repos, time_range, cloc_available)
-    context["request"] = request
     context["all_repos"] = all_repos
 
-    return templates.TemplateResponse("partials/dashboard_content.html", context)
+    return templates.TemplateResponse(request, name="partials/dashboard_content.html", context=context)
 
 
 @router.post("/refresh", response_class=HTMLResponse)
@@ -131,8 +130,8 @@ async def refresh(request: Request) -> Response:
     scan_status = await db.get_scan_status()
 
     return templates.TemplateResponse(
-        "partials/scan_status.html",
-        {"request": request, "scan_status": scan_status},
+        request, name="partials/scan_status.html",
+        context={"scan_status": scan_status},
     )
 
 
@@ -144,6 +143,6 @@ async def scan_status(request: Request) -> Response:
     status = await db.get_scan_status()
 
     return templates.TemplateResponse(
-        "partials/scan_status.html",
-        {"request": request, "scan_status": status},
+        request, name="partials/scan_status.html",
+        context={"scan_status": status},
     )

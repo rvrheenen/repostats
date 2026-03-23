@@ -27,9 +27,8 @@ async def dashboard(request: Request) -> Response:
     available_years = list(range(max_year, min_year - 1, -1)) if min_year and max_year else []
 
     context = await build_dashboard_context(db, default_repos, "all", cloc_available)
-    context["request"] = request
     context["all_repos"] = all_repos
     context["default_repos"] = default_repos
     context["available_years"] = available_years
 
-    return templates.TemplateResponse("dashboard.html", context)
+    return templates.TemplateResponse(request, name="dashboard.html", context=context)
