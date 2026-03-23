@@ -367,9 +367,10 @@ async def run_cloc(db: Database, repo_name: str, repo_path: str) -> dict[str, tu
     file_loc: dict[str, tuple[int, str]] = {}
 
     proc = await asyncio.create_subprocess_exec(
-        "cloc", "--by-file", "--json", "--quiet", repo_path,
+        "cloc", "--vcs=git", "--by-file", "--json", "--quiet",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        cwd=repo_path,
     )
     stdout_bytes, _ = await proc.communicate()
     if proc.returncode != 0:
@@ -385,7 +386,6 @@ async def run_cloc(db: Database, repo_name: str, repo_path: str) -> dict[str, tu
     now = datetime.now(timezone.utc).isoformat()
     # Aggregate per-language totals for cloc_snapshots (same as before)
     lang_totals: dict[str, dict[str, int]] = {}
-    repo_path_prefix = repo_path.rstrip("/") + "/"
 
     for key, stats in data.items():
         if key in ("header", "SUM"):
@@ -397,11 +397,8 @@ async def run_cloc(db: Database, repo_name: str, repo_path: str) -> dict[str, tu
         comment: int = stats.get("comment", 0)  # type: ignore[assignment]
         blank: int = stats.get("blank", 0)  # type: ignore[assignment]
 
-        # key is the absolute file path — make it relative
-        rel_path = key
-        if rel_path.startswith(repo_path_prefix):
-            rel_path = rel_path[len(repo_path_prefix):]
-        file_loc[rel_path] = (code, lang)
+        # key is already a relative path (--vcs=git + cwd=repo_path)
+        file_loc[key] = (code, lang)
 
         if lang not in lang_totals:
             lang_totals[lang] = {"code": 0, "comment": 0, "blank": 0, "files": 0}
