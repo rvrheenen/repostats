@@ -324,8 +324,46 @@ th {
     color: var(--text-secondary);
     margin-bottom: .75rem;
 }
-.contributor-hidden { display: none; }
-.show-all-btn { margin-top: .5rem; }
+.contrib-controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: .75rem;
+}
+.contrib-toggle {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+}
+.toggle-btn {
+    padding: 4px 12px;
+    font-size: .8rem;
+    border: none;
+    background: var(--surface);
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+.toggle-btn + .toggle-btn { border-left: 1px solid var(--border); }
+.toggle-btn.active {
+    background: var(--primary);
+    color: #fff;
+}
+.contrib-limit-label {
+    font-size: .8rem;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+}
+.contrib-limit-select {
+    padding: 3px 6px;
+    font-size: .8rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--text);
+}
 
 /* ================================================================== */
 /*  Commit size stats                                                  */

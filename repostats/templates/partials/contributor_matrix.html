@@ -11,39 +11,61 @@
     {% endif %}
 </div>
 
+<div class="contrib-controls">
+    <div class="contrib-toggle">
+        <button class="toggle-btn active" data-mode="commits">Commits</button>
+        <button class="toggle-btn" data-mode="lines">LOC</button>
+    </div>
+    <label class="contrib-limit-label">
+        Show
+        <select class="contrib-limit-select" onchange="applyContribLimit(this.value)">
+            <option value="10">10</option>
+            <option value="20" selected>20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+            <option value="0">All</option>
+        </select>
+    </label>
+</div>
+
 <div class="table-wrap">
-<table>
+<table id="contributor-table" class="sortable"
+       data-grand-commits="{{ grand_total_commits }}"
+       data-grand-lines="{{ grand_total_lines }}"
+       data-days="{{ days_in_range or '' }}">
     <thead>
         <tr>
-            <th>Author</th>
+            <th data-sort="str">Author</th>
             {% for repo in selected_repos %}
-            <th class="num">{{ repo }}</th>
+            <th class="num" data-sort="num">{{ repo }}</th>
             {% endfor %}
-            <th class="num">Total</th>
-            <th>Tenure</th>
+            <th class="num" data-sort="num">Total</th>
+            <th class="num" data-sort="num">%</th>
+            <th class="num" data-sort="num">Avg/Day</th>
+            <th data-sort="str">Tenure</th>
         </tr>
     </thead>
     <tbody>
     {% for c in contributors %}
-        <tr class="{% if loop.index > 20 %}contributor-hidden{% endif %}">
+        <tr data-commits="{{ c.total_commits }}"
+            data-lines="{{ c.total_lines }}">
             <td>{{ c.author }}</td>
             {% for repo in selected_repos %}
-            <td class="num">{{ c.repo_commits.get(repo, '') }}</td>
+            <td class="num contrib-val"
+                data-commits="{{ c.repo_commits.get(repo, '') }}"
+                data-lines="{{ c.repo_lines.get(repo, '') }}">{{ c.repo_commits.get(repo, '') }}</td>
             {% endfor %}
-            <td class="num"><strong>{{ c.total_commits | commas }}</strong></td>
-            <td class="muted">{{ c.first_commit | shortdate }} &rarr; {{ c.last_commit | shortdate }}</td>
+            <td class="num contrib-total" data-commits="{{ c.total_commits }}" data-lines="{{ c.total_lines }}">
+                <strong>{{ c.total_commits | commas }}</strong>
+            </td>
+            <td class="num contrib-pct"></td>
+            <td class="num contrib-avg"></td>
+            <td class="muted" data-value="{{ c.first_commit }}">{{ c.first_commit | shortdate }} &rarr; {{ c.last_commit | shortdate }}</td>
         </tr>
     {% endfor %}
     </tbody>
 </table>
 </div>
-
-{% if contributors | length > 20 %}
-<button class="btn-sm show-all-btn" onclick="
-    document.querySelectorAll('.contributor-hidden').forEach(r => r.classList.toggle('contributor-hidden'));
-    this.textContent = this.textContent === 'Show all' ? 'Show top 20' : 'Show all';
-">Show all</button>
-{% endif %}
 
 {% else %}
 <p class="muted">No contributor data yet.</p>

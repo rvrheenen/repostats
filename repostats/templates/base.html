@@ -256,9 +256,83 @@ function initAllCharts() {
     initCommitSizeChart();
     initFileAgeChart();
     initSortable();
+    initContribToggle();
 }
 document.addEventListener('DOMContentLoaded', initAllCharts);
 document.body.addEventListener('htmx:afterSwap', () => setTimeout(initAllCharts, 50));
+
+/* ---- Contributor toggle (Commits / LOC) + limit ---- */
+function applyContribLimit(limit) {
+    const table = document.getElementById('contributor-table');
+    if (!table) return;
+    const n = parseInt(limit) || 0;
+    table.querySelectorAll('tbody tr').forEach((row, i) => {
+        row.style.display = (n === 0 || i < n) ? '' : 'none';
+    });
+}
+
+function initContribToggle() {
+    const table = document.getElementById('contributor-table');
+    if (!table) return;
+    const btns = document.querySelectorAll('.contrib-toggle .toggle-btn');
+    if (!btns.length) return;
+
+    function fmt(n) {
+        return n.toLocaleString('en-US');
+    }
+
+    function apply(mode) {
+        const grand = parseFloat(table.dataset[mode === 'commits' ? 'grandCommits' : 'grandLines']) || 0;
+        const days = parseFloat(table.dataset.days) || 0;
+
+        table.querySelectorAll('tbody tr').forEach(row => {
+            const total = parseFloat(row.dataset[mode]) || 0;
+            // Per-repo cells
+            row.querySelectorAll('.contrib-val').forEach(td => {
+                const v = td.dataset[mode];
+                const num = v ? parseFloat(v) : 0;
+                td.textContent = v ? fmt(num) : '';
+                td.dataset.value = num;
+            });
+            // Total column
+            const totalCell = row.querySelector('.contrib-total');
+            if (totalCell) {
+                totalCell.innerHTML = '<strong>' + fmt(total) + '</strong>';
+                totalCell.dataset.value = total;
+            }
+            // Percentage
+            const pct = grand > 0 ? total / grand * 100 : 0;
+            const pctCell = row.querySelector('.contrib-pct');
+            if (pctCell) {
+                pctCell.textContent = grand > 0 ? pct.toFixed(1) + '%' : '';
+                pctCell.dataset.value = pct;
+            }
+            // Avg per day
+            const avg = days > 0 ? total / days : 0;
+            const avgCell = row.querySelector('.contrib-avg');
+            if (avgCell) {
+                avgCell.textContent = days > 0 ? avg.toFixed(1) : '';
+                avgCell.dataset.value = avg;
+            }
+        });
+    }
+
+    btns.forEach(btn => {
+        if (btn.classList.contains('contrib-bound')) return;
+        btn.classList.add('contrib-bound');
+        btn.addEventListener('click', () => {
+            btns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            apply(btn.dataset.mode);
+        });
+    });
+
+    // Initial render
+    apply('commits');
+    // Apply initial limit from selector
+    const sel = document.querySelector('.contrib-limit-select');
+    if (sel) applyContribLimit(sel.value);
+}
 
 /* ---- Sortable tables ---- */
 function initSortable() {

@@ -14,16 +14,18 @@ from repostats.db import Database, _reader_override
 router = APIRouter()
 
 
+_DAYS_MAP = {
+    "7d": 7, "14d": 14, "30d": 30, "90d": 90, "180d": 180,
+    "1y": 365, "2y": 730, "3y": 1095, "5y": 1825,
+}
+
+
 def parse_time_range(time_range: str) -> tuple[str | None, str | None]:
     """Convert time range string to (after, before) ISO date cutoffs.
 
     Supports: 7d, 14d, 30d, 90d, 180d, 1y, 2y, 3y, 5y, all, yNNNN (specific year).
     """
-    days_map = {
-        "7d": 7, "14d": 14, "30d": 30, "90d": 90, "180d": 180,
-        "1y": 365, "2y": 730, "3y": 1095, "5y": 1825,
-    }
-    days = days_map.get(time_range)
+    days = _DAYS_MAP.get(time_range)
     if days is not None:
         return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(), None
 
@@ -33,6 +35,19 @@ def parse_time_range(time_range: str) -> tuple[str | None, str | None]:
         return f"{year}-01-01T00:00:00+00:00", f"{year + 1}-01-01T00:00:00+00:00"
 
     return None, None  # "all"
+
+
+def _days_in_range(time_range: str) -> int | None:
+    """Return the number of days covered by *time_range*, or None for 'all'."""
+    days = _DAYS_MAP.get(time_range)
+    if days is not None:
+        return days
+    if time_range.startswith("y") and time_range[1:].isdigit():
+        year = int(time_range[1:])
+        start = datetime(year, 1, 1)
+        end = datetime(year + 1, 1, 1)
+        return (end - start).days
+    return None
 
 
 async def _on_reader(reader: Any, coro: Any) -> Any:
@@ -81,7 +96,7 @@ async def build_dashboard_context(
             _r(3,  db.get_commit_timeline(repos, after, before)),
             _r(0,  db.get_commit_heatmap(repos, after, before)),
             _r(1,  db.get_language_breakdown(repos)),
-            _r(2,  db.get_contributor_matrix(repos, after, before)),
+            _r(2,  db.get_contributor_matrix(repos, after, before, limit=100)),
             _r(3,  db.get_file_hotspots(repos, after, before)),
             _r(0,  db.get_file_coupling(repos)),
             _r(1,  db.get_commit_size_stats(repos, after, before)),
@@ -102,6 +117,14 @@ async def build_dashboard_context(
         for r in readers:
             await r.close()
 
+    grand_total_commits = sum(c["total_commits"] for c in contributors)
+    grand_total_lines = sum(c["total_lines"] for c in contributors)
+
+    days = _days_in_range(time_range)
+    if days is None and contributors:
+        earliest = min(c["first_commit"] for c in contributors)
+        days = max((datetime.now(timezone.utc) - datetime.fromisoformat(earliest)).days, 1)
+
     return {
         "stats": stats,
         "total_loc": total_loc,
@@ -110,6 +133,9 @@ async def build_dashboard_context(
         "heatmap": heatmap,
         "language": language,
         "contributors": contributors,
+        "grand_total_commits": grand_total_commits,
+        "grand_total_lines": grand_total_lines,
+        "days_in_range": days,
         "hotspots": hotspots,
         "coupling": coupling,
         "commit_size": commit_size,
