@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import aiosqlite
+
+# Context variable that lets asyncio.gather route queries to different readers.
+_reader_override: contextvars.ContextVar[aiosqlite.Connection | None] = (
+    contextvars.ContextVar("_reader_override", default=None)
+)
 
 logger = logging.getLogger(__name__)
 
@@ -109,13 +115,31 @@ def _repo_filter(
 
 
 class Database:
-    """Manages SQLite connections: a shared writer and a read-only reader."""
+    """Manages SQLite connections: a shared writer and a pool of read-only readers.
+
+    The reader pool allows ``asyncio.gather`` to run queries truly in parallel
+    (each aiosqlite connection owns its own thread, and SQLite WAL mode permits
+    concurrent readers).  Call :meth:`use_reader` inside each gathered coroutine
+    to pin it to a specific pool connection.
+    """
+
+    _READER_POOL_SIZE = 4
 
     def __init__(self, db_path: str) -> None:
         self.db_path = db_path
         self._writer: aiosqlite.Connection | None = None
-        self._reader: aiosqlite.Connection | None = None
+        self._reader_pool: list[aiosqlite.Connection] = []
         self._write_lock = asyncio.Lock()
+
+    async def _open_reader(self) -> aiosqlite.Connection:
+        # isolation_level=None → autocommit: each statement runs in its own
+        # transaction and releases the WAL read-mark immediately, preventing
+        # stale snapshots from blocking WAL checkpoints.
+        conn = await aiosqlite.connect(self.db_path, isolation_level=None)
+        await conn.execute("PRAGMA query_only=ON")
+        await conn.execute("PRAGMA busy_timeout=5000")
+        conn.row_factory = aiosqlite.Row
+        return conn
 
     async def open(self) -> None:
         self._writer = await aiosqlite.connect(self.db_path)
@@ -126,17 +150,17 @@ class Database:
         await self._writer.executescript(SCHEMA_SQL)
         await self._writer.commit()
 
-        self._reader = await aiosqlite.connect(self.db_path)
-        await self._reader.execute("PRAGMA query_only=ON")
-        await self._reader.execute("PRAGMA busy_timeout=5000")
-        self._reader.row_factory = aiosqlite.Row
-        logger.info("database opened: %s", self.db_path)
+        self._reader_pool = [
+            await self._open_reader() for _ in range(self._READER_POOL_SIZE)
+        ]
+        logger.info("database opened: %s (reader pool=%d)", self.db_path, len(self._reader_pool))
 
     async def close(self) -> None:
         if self._writer:
             await self._writer.close()
-        if self._reader:
-            await self._reader.close()
+        for conn in self._reader_pool:
+            await conn.close()
+        self._reader_pool.clear()
         logger.info("database closed")
 
     @property
@@ -147,9 +171,21 @@ class Database:
 
     @property
     def reader(self) -> aiosqlite.Connection:
-        if self._reader is None:
+        """Return the reader for the current context.
+
+        If :func:`use_reader` has pinned a pool connection for this task,
+        return that; otherwise fall back to the first pool connection.
+        """
+        override = _reader_override.get(None)
+        if override is not None:
+            return override
+        if not self._reader_pool:
             raise RuntimeError("database not opened")
-        return self._reader
+        return self._reader_pool[0]
+
+    def pool_reader(self, index: int) -> aiosqlite.Connection:
+        """Return pool reader at *index* (mod pool size)."""
+        return self._reader_pool[index % len(self._reader_pool)]
 
     @property
     def write_lock(self) -> asyncio.Lock:
@@ -501,29 +537,13 @@ class Database:
         """Most frequently modified files."""
         if not repos:
             return []
-        placeholders = ",".join("?" * len(repos))
-        fc_date_filter = ""
-        params: list[str | int] = []
-        params.extend(repos)
-        date_conds: list[str] = []
-        if after:
-            date_conds.append("date >= ?")
-            params.append(after)
-        if before:
-            date_conds.append("date < ?")
-            params.append(before)
-        if date_conds:
-            fc_date_filter = f"""
-                AND commit_hash IN (
-                    SELECT hash FROM commits WHERE repo = file_changes.repo AND {' AND '.join(date_conds)}
-                )
-            """
-
+        placeholders, date_filter, params = _repo_filter(repos, after, before)
         sql = f"""
-            SELECT repo, file_path, COUNT(*) AS change_count
-            FROM file_changes
-            WHERE repo IN ({placeholders}) {fc_date_filter}
-            GROUP BY repo, file_path
+            SELECT fc.repo, fc.file_path, COUNT(*) AS change_count
+            FROM file_changes fc
+            JOIN commits c ON c.repo = fc.repo AND c.hash = fc.commit_hash
+            WHERE fc.repo IN ({placeholders}) {date_filter}
+            GROUP BY fc.repo, fc.file_path
             ORDER BY change_count DESC
             LIMIT ?
         """
@@ -626,11 +646,43 @@ class Database:
     async def get_knowledge_silos(
         self, repos: list[str], max_authors: int = 2, limit: int = 20
     ) -> list[dict[str, Any]]:
-        """Files/directories where only 1-2 people have committed."""
+        """Files/directories where only 1-2 people have committed.
+
+        Uses the pre-computed file_stats table for filtering, then a
+        targeted correlated subquery to fetch author names only for the
+        small result set (much faster than aggregating all file_changes).
+        Falls back to the dynamic query when file_stats is unpopulated.
+        """
         if not repos:
             return []
         placeholders = ",".join("?" * len(repos))
-        sql = f"""
+        params: list[str | int] = list(repos) + [max_authors, limit]
+
+        # Fast path: use pre-computed file_stats (populated after first scan).
+        sql_fast = f"""
+            WITH candidates AS (
+                SELECT repo, file_path, author_count
+                FROM file_stats
+                WHERE repo IN ({placeholders}) AND author_count <= ?
+                ORDER BY author_count, file_path
+                LIMIT ?
+            )
+            SELECT c.repo, c.file_path, c.author_count,
+                   (SELECT GROUP_CONCAT(DISTINCT cm.author)
+                    FROM file_changes fc
+                    JOIN commits cm ON cm.repo = fc.repo AND cm.hash = fc.commit_hash
+                    WHERE fc.repo = c.repo AND fc.file_path = c.file_path
+                   ) AS authors
+            FROM candidates c
+            ORDER BY c.author_count, c.file_path
+        """
+        async with self.reader.execute(sql_fast, params) as cur:
+            rows = await cur.fetchall()
+        if rows:
+            return [dict(r) for r in rows]
+
+        # Fallback: file_stats not yet populated — compute from raw data.
+        sql_slow = f"""
             SELECT fc.repo, fc.file_path, COUNT(DISTINCT c.author) AS author_count,
                    GROUP_CONCAT(DISTINCT c.author) AS authors
             FROM file_changes fc
@@ -641,11 +693,7 @@ class Database:
             ORDER BY author_count, fc.file_path
             LIMIT ?
         """
-        params: list[str | int] = []
-        params.extend(repos)
-        params.append(max_authors)
-        params.append(limit)
-        async with self.reader.execute(sql, params) as cur:
+        async with self.reader.execute(sql_slow, params) as cur:
             rows = await cur.fetchall()
         return [dict(r) for r in rows]
 

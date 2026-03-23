@@ -133,6 +133,8 @@ async def _collector_loop(
     """Background loop: scan immediately on startup, then every interval or on demand."""
     try:
         await scan_all(db, config, cloc_available)
+        # Checkpoint WAL after bulk writes so readers see fresh data immediately.
+        await db.writer.execute("PRAGMA wal_checkpoint(PASSIVE)")
     except Exception:
         logger.exception("initial scan failed")
 
@@ -148,6 +150,7 @@ async def _collector_loop(
                 logger.info("scheduled scan starting")
 
             await scan_all(db, config, cloc_available)
+            await db.writer.execute("PRAGMA wal_checkpoint(PASSIVE)")
         except asyncio.CancelledError:
             raise
         except Exception:
