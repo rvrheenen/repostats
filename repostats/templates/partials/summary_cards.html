@@ -4,6 +4,10 @@
         <div class="card-label">Lines of Code</div>
     </div>
     <div class="summary-card">
+        <div class="card-value">{{ total_surviving_lines | commas }}</div>
+        <div class="card-label">Surviving Lines</div>
+    </div>
+    <div class="summary-card">
         <div class="card-value">{{ stats.total_commits | commas }}</div>
         <div class="card-label">Commits</div>
     </div>

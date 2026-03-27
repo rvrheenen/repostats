@@ -528,7 +528,8 @@ function initContribToggle() {
     }
 
     function apply(mode) {
-        const grand = parseFloat(table.dataset[mode === 'commits' ? 'grandCommits' : 'grandLines']) || 0;
+        const grandKey = mode === 'commits' ? 'grandCommits' : mode === 'lines' ? 'grandLines' : 'grandSurviving';
+        const grand = parseFloat(table.dataset[grandKey]) || 0;
         const days = parseFloat(table.dataset.days) || 0;
 
         table.querySelectorAll('tbody tr').forEach(row => {

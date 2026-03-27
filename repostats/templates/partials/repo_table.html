@@ -6,6 +6,7 @@
         <tr>
             <th data-sort="text">Repository</th>
             <th data-sort="num" class="num">LOC</th>
+            <th data-sort="num" class="num">Surviving</th>
             <th data-sort="num" class="num">Commits</th>
             <th data-sort="num" class="num">Insertions</th>
             <th data-sort="num" class="num">Deletions</th>
@@ -19,6 +20,7 @@
         <tr data-repo="{{ r.name }}">
             <td>{{ r.name }}</td>
             <td class="num" data-value="{{ repo_loc.get(r.name, 0) }}">{{ repo_loc.get(r.name, 0) | commas }}</td>
+            <td class="num" data-value="{{ repo_surviving.get(r.name, 0) }}">{{ repo_surviving.get(r.name, 0) | commas }}</td>
             <td class="num" data-value="{{ r.total_commits }}">{{ r.total_commits | commas }}</td>
             <td class="num add" data-value="{{ r.total_insertions }}">+{{ r.total_insertions | commas }}</td>
             <td class="num del" data-value="{{ r.total_deletions }}">-{{ r.total_deletions | commas }}</td>

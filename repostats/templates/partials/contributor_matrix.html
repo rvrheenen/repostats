@@ -15,6 +15,7 @@
     <div class="contrib-toggle">
         <button class="toggle-btn active" data-mode="commits">Commits</button>
         <button class="toggle-btn" data-mode="lines">LOC</button>
+        <button class="toggle-btn" data-mode="surviving">Surviving</button>
     </div>
     <label class="contrib-limit-label">
         Show
@@ -34,6 +35,7 @@
 <table id="contributor-table" class="sortable"
        data-grand-commits="{{ grand_total_commits }}"
        data-grand-lines="{{ grand_total_lines }}"
+       data-grand-surviving="{{ grand_total_surviving }}"
        data-days="{{ days_in_range or '' }}">
     <thead>
         <tr>
@@ -51,14 +53,16 @@
     {% for c in contributors %}
         <tr data-author="{{ c.author }}"
             data-commits="{{ c.total_commits }}"
-            data-lines="{{ c.total_lines }}">
+            data-lines="{{ c.total_lines }}"
+            data-surviving="{{ c.total_surviving }}">
             <td>{{ c.author }}</td>
             {% for repo in selected_repos %}
             <td class="num contrib-val"
                 data-commits="{{ c.repo_commits.get(repo, '') }}"
-                data-lines="{{ c.repo_lines.get(repo, '') }}">{{ c.repo_commits.get(repo, '') }}</td>
+                data-lines="{{ c.repo_lines.get(repo, '') }}"
+                data-surviving="{{ c.repo_surviving.get(repo, '') }}">{{ c.repo_commits.get(repo, '') }}</td>
             {% endfor %}
-            <td class="num contrib-total" data-commits="{{ c.total_commits }}" data-lines="{{ c.total_lines }}">
+            <td class="num contrib-total" data-commits="{{ c.total_commits }}" data-lines="{{ c.total_lines }}" data-surviving="{{ c.total_surviving }}">
                 <strong>{{ c.total_commits | commas }}</strong>
             </td>
             <td class="num contrib-pct"></td>

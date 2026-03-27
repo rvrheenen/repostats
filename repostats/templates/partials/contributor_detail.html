@@ -2,6 +2,7 @@
     <span class="contributor-detail-title">{{ author }}</span>
     <span class="contributor-detail-stat">{{ total_commits | commas }} commits</span>
     <span class="contributor-detail-stat">{{ total_lines | commas }} lines</span>
+    <span class="contributor-detail-stat">{{ total_surviving | commas }} surviving</span>
     <span class="contributor-detail-stat">{{ repo_count }} repos</span>
     <span class="contributor-detail-stat">~{{ avg_commit_size | commas }} lines/commit</span>
     <span class="contributor-detail-stat">{{ tenure }}</span>
@@ -20,6 +21,7 @@
                     <th class="num" data-sort="num">Commits</th>
                     <th class="num" data-sort="num">+Ins</th>
                     <th class="num" data-sort="num">-Del</th>
+                    <th class="num" data-sort="num">Surviving</th>
                     <th class="num" data-sort="num">Files</th>
                     <th class="num" data-sort="num">%</th>
                 </tr>
@@ -31,6 +33,7 @@
                     <td class="num" data-value="{{ r.commits }}">{{ r.commits | commas }}</td>
                     <td class="num add" data-value="{{ r.insertions }}">+{{ r.insertions | commas }}</td>
                     <td class="num del" data-value="{{ r.deletions }}">-{{ r.deletions | commas }}</td>
+                    <td class="num" data-value="{{ r.surviving_lines }}">{{ r.surviving_lines | commas }}</td>
                     <td class="num" data-value="{{ r.files_changed }}">{{ r.files_changed | commas }}</td>
                     <td class="num" data-value="{{ r.percentage }}">{{ r.percentage }}%</td>
                 </tr>

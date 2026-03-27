@@ -240,6 +240,7 @@ async def _get_last_hash(db: Database, repo: str) -> str | None:
 async def _clear_repo_data(db: Database, repo: str) -> None:
     """Clear all data for a repo (for force-push recovery)."""
     async with db.write_lock:
+        await db.writer.execute("DELETE FROM blame_stats WHERE repo = ?", (repo,))
         await db.writer.execute("DELETE FROM file_stats WHERE repo = ?", (repo,))
         await db.writer.execute("DELETE FROM file_coupling WHERE repo = ?", (repo,))
         await db.writer.execute("DELETE FROM file_changes WHERE repo = ?", (repo,))
@@ -456,6 +457,93 @@ async def compute_file_stats(
 
 
 # ------------------------------------------------------------------
+# Blame (surviving lines)
+# ------------------------------------------------------------------
+
+BLAME_CONCURRENCY = 8
+
+
+async def _build_blame_normalizer(
+    db: Database, repo_name: str, mailmap: Mailmap | None,
+) -> Mailmap | EmailNormalizer:
+    """Return a resolver that maps (author, email) → canonical (name, email).
+
+    Uses the explicit mailmap when available, otherwise builds an
+    EmailNormalizer from the commits already in the DB.
+    """
+    if mailmap:
+        return mailmap
+    normalizer = EmailNormalizer()
+    sql = "SELECT author, email, date FROM commits WHERE repo = ?"
+    async with db.reader.execute(sql, (repo_name,)) as cur:
+        rows = await cur.fetchall()
+    for r in rows:
+        normalizer.observe(r["author"], r["email"], r["date"])
+    return normalizer
+
+
+async def compute_blame_stats(
+    db: Database,
+    repo_name: str,
+    repo_path: str,
+    file_loc: dict[str, tuple[int, str]],
+    mailmap: Mailmap | None,
+) -> None:
+    """Run ``git blame`` on code files and store surviving lines per author."""
+    # Determine file list: cloc files if available, else git ls-files
+    if file_loc:
+        files = list(file_loc.keys())
+    else:
+        rc, output = await _run_git(repo_path, "ls-files")
+        if rc != 0:
+            logger.warning("git ls-files failed for %s", repo_name)
+            return
+        files = [f for f in output.strip().split("\n") if f]
+
+    if not files:
+        async with db.write_lock:
+            await db.writer.execute("DELETE FROM blame_stats WHERE repo = ?", (repo_name,))
+            await db.writer.commit()
+        return
+
+    resolver = await _build_blame_normalizer(db, repo_name, mailmap)
+    author_lines: dict[str, int] = {}
+    sem = asyncio.Semaphore(BLAME_CONCURRENCY)
+
+    async def _blame_one(fp: str) -> None:
+        async with sem:
+            rc, output = await _run_git(
+                repo_path, "blame", "--line-porcelain", "-w", "--", fp,
+            )
+            if rc != 0:
+                return
+            current_author: str | None = None
+            for line in output.split("\n"):
+                if line.startswith("author "):
+                    current_author = line[7:]
+                elif line.startswith("author-mail ") and current_author is not None:
+                    email = line[12:].strip("<>")
+                    name, _ = resolver.resolve(current_author, email)
+                    author_lines[name] = author_lines.get(name, 0) + 1
+                    current_author = None
+
+    logger.info("blame_stats: blaming %d files for %s", len(files), repo_name)
+    await asyncio.gather(*[_blame_one(fp) for fp in files])
+
+    rows = [(repo_name, author, lines) for author, lines in author_lines.items()]
+    async with db.write_lock:
+        await db.writer.execute("DELETE FROM blame_stats WHERE repo = ?", (repo_name,))
+        if rows:
+            await db.writer.executemany(
+                "INSERT INTO blame_stats (repo, author, lines) VALUES (?, ?, ?)",
+                rows,
+            )
+        await db.writer.commit()
+    total = sum(author_lines.values())
+    logger.info("blame_stats: %d authors, %d lines for %s", len(rows), total, repo_name)
+
+
+# ------------------------------------------------------------------
 # Repo scanning
 # ------------------------------------------------------------------
 
@@ -538,6 +626,13 @@ async def scan_repo(
             if cloc_available:
                 no_commit_file_loc = await run_cloc(db, repo_name, repo_path)
             await compute_file_stats(db, repo_name, no_commit_file_loc)
+            # Compute blame stats if not yet done for this repo
+            async with db.reader.execute(
+                "SELECT 1 FROM blame_stats WHERE repo = ? LIMIT 1", (repo_name,),
+            ) as cur:
+                has_blame = await cur.fetchone()
+            if not has_blame:
+                await compute_blame_stats(db, repo_name, repo_path, no_commit_file_loc, mailmap)
             return
 
         _normalize_commits(commits, mailmap)
@@ -568,6 +663,7 @@ async def scan_repo(
             file_loc = await run_cloc(db, repo_name, repo_path)
 
         await compute_file_stats(db, repo_name, file_loc)
+        await compute_blame_stats(db, repo_name, repo_path, file_loc, mailmap)
 
         logger.info(
             "scan complete for %s: %d new commits (%d total in DB)",

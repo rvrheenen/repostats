@@ -89,6 +89,7 @@ async def build_dashboard_context(
             weekend, scan_status, silos, cross_repo, new_returning,
             code_to_comment_ratio, stale_files, avg_file_age,
             file_age_distribution, rework, repo_loc,
+            surviving_all, repo_surviving,
         ) = await asyncio.gather(
             _r(0,  db.get_aggregated_stats(repos, after, before)),
             _r(1,  db.get_repo_summaries(repos, after, before)),
@@ -112,6 +113,8 @@ async def build_dashboard_context(
             _r(3,  db.get_file_age_distribution(repos)),
             _r(0,  db.get_rework_ratio(repos, rework_after, before)),
             _r(1,  db.get_per_repo_loc(repos)),
+            _r(2,  db.get_all_surviving_lines(repos)),
+            _r(3,  db.get_per_repo_surviving(repos)),
         )
     finally:
         for r in readers:
@@ -119,6 +122,16 @@ async def build_dashboard_context(
 
     grand_total_commits = sum(c["total_commits"] for c in contributors)
     grand_total_lines = sum(c["total_lines"] for c in contributors)
+
+    # Merge surviving lines (from blame) into contributor matrix
+    _surviving_by_author: dict[str, dict[str, int]] = {}
+    for row in surviving_all:
+        _surviving_by_author.setdefault(row["author"], {})[row["repo"]] = row["lines"]
+    for c in contributors:
+        c["repo_surviving"] = _surviving_by_author.get(c["author"], {})
+        c["total_surviving"] = sum(c["repo_surviving"].values())
+    grand_total_surviving = sum(c["total_surviving"] for c in contributors)
+    total_surviving_lines = sum(repo_surviving.values())
 
     days = _days_in_range(time_range)
     if days is None and contributors:
@@ -135,6 +148,9 @@ async def build_dashboard_context(
         "contributors": contributors,
         "grand_total_commits": grand_total_commits,
         "grand_total_lines": grand_total_lines,
+        "grand_total_surviving": grand_total_surviving,
+        "total_surviving_lines": total_surviving_lines,
+        "repo_surviving": repo_surviving,
         "days_in_range": days,
         "hotspots": hotspots,
         "coupling": coupling,
@@ -243,12 +259,13 @@ async def contributor_detail(
         def _r(idx: int, coro: Any) -> Any:
             return _on_reader(readers[idx % len(readers)], coro)
 
-        by_repo, by_lang, top_files, timeline, heatmap_raw = await asyncio.gather(
+        by_repo, by_lang, top_files, timeline, heatmap_raw, surviving = await asyncio.gather(
             _r(0, db.get_contributor_repo_breakdown(repos, author, after, before)),
             _r(1, db.get_contributor_language_breakdown(repos, author, after, before)),
             _r(2, db.get_contributor_top_files(repos, author, after, before)),
             _r(0, db.get_contributor_timeline(repos, author, after, before)),
             _r(1, db.get_contributor_heatmap(repos, author, after, before)),
+            _r(2, db.get_contributor_surviving_lines(repos, author)),
         )
     finally:
         for r in readers:
@@ -281,9 +298,11 @@ async def contributor_detail(
     else:
         tenure = "\u2014"
 
-    # Per-repo percentages
+    # Per-repo percentages + surviving lines
     for r in by_repo:
         r["percentage"] = round(r["commits"] / total_commits * 100, 1) if total_commits else 0
+        r["surviving_lines"] = surviving.get(r["repo"], 0)
+    total_surviving = sum(surviving.values())
 
     # Language percentages
     total_lang_lines = sum(r["lines_changed"] for r in by_lang) or 1
@@ -304,6 +323,7 @@ async def contributor_detail(
             "author": author,
             "total_commits": total_commits,
             "total_lines": total_lines,
+            "total_surviving": total_surviving,
             "repo_count": repo_count,
             "avg_commit_size": avg_commit_size,
             "tenure": tenure,
@@ -345,6 +365,7 @@ async def repo_detail(
         (
             stats, language, contributors, total_loc,
             velocity, code_to_comment_ratio, hotspots, rework,
+            repo_surviving_all,
         ) = await asyncio.gather(
             _r(0, db.get_aggregated_stats(repos, after, before)),
             _r(1, db.get_language_breakdown(repos)),
@@ -354,10 +375,18 @@ async def repo_detail(
             _r(2, db.get_code_to_comment_ratio(repos)),
             _r(0, db.get_file_hotspots(repos, after, before, limit=10)),
             _r(1, db.get_rework_ratio(repos, rework_after, before)),
+            _r(2, db.get_all_surviving_lines(repos)),
         )
     finally:
         for r in readers:
             await r.close()
+
+    # Merge surviving lines into contributors
+    _repo_surv: dict[str, dict[str, int]] = {}
+    for row in repo_surviving_all:
+        _repo_surv.setdefault(row["author"], {})[row["repo"]] = row["lines"]
+    for c in contributors:
+        c["total_surviving"] = sum(_repo_surv.get(c["author"], {}).values())
 
     return templates.TemplateResponse(
         request,

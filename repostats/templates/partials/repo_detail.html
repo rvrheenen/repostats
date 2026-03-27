@@ -53,6 +53,7 @@
                     <th data-sort="str">Author</th>
                     <th class="num" data-sort="num">Commits</th>
                     <th class="num" data-sort="num">Lines</th>
+                    <th class="num" data-sort="num">Surviving</th>
                     <th data-sort="str">First Commit</th>
                     <th data-sort="str">Last Commit</th>
                 </tr>
@@ -63,6 +64,7 @@
                     <td>{{ c.author }}</td>
                     <td class="num" data-value="{{ c.total_commits }}">{{ c.total_commits | commas }}</td>
                     <td class="num" data-value="{{ c.total_lines }}">{{ c.total_lines | commas }}</td>
+                    <td class="num" data-value="{{ c.total_surviving }}">{{ c.total_surviving | commas }}</td>
                     <td data-value="{{ c.first_commit or '' }}">{{ c.first_commit | shortdate }}</td>
                     <td data-value="{{ c.last_commit or '' }}">{{ c.last_commit | timeago }}</td>
                 </tr>

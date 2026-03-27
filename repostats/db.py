@@ -91,6 +91,13 @@ CREATE TABLE IF NOT EXISTS file_stats (
 CREATE INDEX IF NOT EXISTS idx_file_stats_stale ON file_stats(repo, last_commit_date);
 CREATE INDEX IF NOT EXISTS idx_file_stats_loc ON file_stats(repo, loc DESC);
 
+CREATE TABLE IF NOT EXISTS blame_stats (
+    repo    TEXT NOT NULL,
+    author  TEXT NOT NULL,
+    lines   INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (repo, author)
+);
+
 """
 
 
@@ -942,6 +949,52 @@ class Database:
         async with self.reader.execute(sql, full_params) as cur:
             rows = await cur.fetchall()
         return [dict(r) for r in rows]
+
+    async def get_contributor_surviving_lines(
+        self, repos: list[str], author: str,
+    ) -> dict[str, int]:
+        """Surviving lines per repo for a contributor (from blame_stats)."""
+        if not repos:
+            return {}
+        placeholders = ",".join("?" * len(repos))
+        sql = f"""
+            SELECT repo, lines
+            FROM blame_stats
+            WHERE author = ? AND repo IN ({placeholders})
+        """
+        params: list[str] = [author] + repos
+        async with self.reader.execute(sql, params) as cur:
+            rows = await cur.fetchall()
+        return {r["repo"]: r["lines"] for r in rows}
+
+    async def get_all_surviving_lines(
+        self, repos: list[str],
+    ) -> list[dict[str, Any]]:
+        """All blame_stats rows for selected repos."""
+        if not repos:
+            return []
+        placeholders = ",".join("?" * len(repos))
+        sql = f"SELECT repo, author, lines FROM blame_stats WHERE repo IN ({placeholders})"
+        async with self.reader.execute(sql, repos) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def get_per_repo_surviving(
+        self, repos: list[str],
+    ) -> dict[str, int]:
+        """Total surviving lines per repo (summed across all authors)."""
+        if not repos:
+            return {}
+        placeholders = ",".join("?" * len(repos))
+        sql = f"""
+            SELECT repo, SUM(lines) AS total
+            FROM blame_stats
+            WHERE repo IN ({placeholders})
+            GROUP BY repo
+        """
+        async with self.reader.execute(sql, repos) as cur:
+            rows = await cur.fetchall()
+        return {r["repo"]: r["total"] for r in rows}
 
     async def get_contributor_language_breakdown(
         self, repos: list[str], author: str, after: str | None = None, before: str | None = None
