@@ -1,4 +1,5 @@
 {% if summaries %}
+<p class="muted">Click a repository row to see language, contributor, and hotspot details.</p>
 <div class="table-wrap">
 <table class="sortable" id="repo-table">
     <thead>
@@ -15,7 +16,7 @@
     </thead>
     <tbody>
     {% for r in summaries %}
-        <tr>
+        <tr data-repo="{{ r.name }}">
             <td>{{ r.name }}</td>
             <td class="num" data-value="{{ repo_loc.get(r.name, 0) }}">{{ repo_loc.get(r.name, 0) | commas }}</td>
             <td class="num" data-value="{{ r.total_commits }}">{{ r.total_commits | commas }}</td>
@@ -28,6 +29,9 @@
     {% endfor %}
     </tbody>
 </table>
+</div>
+<div id="repo-detail" class="repo-detail-panel">
+    <span class="repo-detail-loading">Loading...</span>
 </div>
 {% else %}
 <p class="muted">No commit data yet.</p>

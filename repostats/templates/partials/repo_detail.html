@@ -1,0 +1,101 @@
+<div class="repo-detail-header">
+    <span class="repo-detail-title">{{ repo }}</span>
+    <span class="repo-detail-stat">{{ total_loc | commas }} LOC</span>
+    <span class="repo-detail-stat">{{ stats.total_commits | commas }} commits</span>
+    <span class="repo-detail-stat">{{ active_contributors }} contributors</span>
+    <span class="repo-detail-stat">Bus factor {{ stats.bus_factor }}</span>
+    <span class="repo-detail-stat">Velocity {{ velocity.net_growth | commas }}</span>
+    <span class="repo-detail-stat">Rework {{ rework_ratio }}%</span>
+    <span class="repo-detail-stat">Code:Comment {{ code_to_comment_ratio }}</span>
+    <button class="btn-close-detail" onclick="toggleRepoDetail(_activeRepo)" title="Close">&times;</button>
+</div>
+
+<div class="repo-detail-grid">
+    <div>
+        <h4 class="section-subtitle">Language Distribution</h4>
+        {% if language %}
+        <div class="table-wrap">
+        <table class="table-compact sortable">
+            <thead>
+                <tr>
+                    <th data-sort="str">Language</th>
+                    <th class="num" data-sort="num">Code</th>
+                    <th class="num" data-sort="num">Comment</th>
+                    <th class="num" data-sort="num">Files</th>
+                    <th class="num" data-sort="num">%</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for l in language %}
+                <tr>
+                    <td>{{ l.language }}</td>
+                    <td class="num" data-value="{{ l.code }}">{{ l.code | commas }}</td>
+                    <td class="num" data-value="{{ l.comment }}">{{ l.comment | commas }}</td>
+                    <td class="num" data-value="{{ l.files }}">{{ l.files | commas }}</td>
+                    <td class="num" data-value="{{ l.percentage }}">{{ l.percentage }}%</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <p class="muted">No language data available</p>
+        {% endif %}
+    </div>
+
+    <div>
+        <h4 class="section-subtitle">Top Contributors</h4>
+        {% if contributors %}
+        <div class="table-wrap">
+        <table class="table-compact sortable">
+            <thead>
+                <tr>
+                    <th data-sort="str">Author</th>
+                    <th class="num" data-sort="num">Commits</th>
+                    <th class="num" data-sort="num">Lines</th>
+                    <th data-sort="str">First Commit</th>
+                    <th data-sort="str">Last Commit</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for c in contributors %}
+                <tr>
+                    <td>{{ c.author }}</td>
+                    <td class="num" data-value="{{ c.total_commits }}">{{ c.total_commits | commas }}</td>
+                    <td class="num" data-value="{{ c.total_lines }}">{{ c.total_lines | commas }}</td>
+                    <td data-value="{{ c.first_commit or '' }}">{{ c.first_commit | shortdate }}</td>
+                    <td data-value="{{ c.last_commit or '' }}">{{ c.last_commit | timeago }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <p class="muted">No contributor data available</p>
+        {% endif %}
+    </div>
+</div>
+
+{% if hotspots %}
+<div style="margin-top: 1.5rem;">
+    <h4 class="section-subtitle">File Hotspots</h4>
+    <div class="table-wrap">
+    <table class="table-compact sortable">
+        <thead>
+            <tr>
+                <th data-sort="str">File</th>
+                <th class="num" data-sort="num">Changes</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for f in hotspots %}
+            <tr>
+                <td class="file-path" title="{{ f.file_path }}">{{ f.file_path }}</td>
+                <td class="num" data-value="{{ f.change_count }}">{{ f.change_count | commas }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% endif %}

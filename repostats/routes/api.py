@@ -222,6 +222,66 @@ async def language_detail(
     )
 
 
+@router.post("/repo-detail", response_class=HTMLResponse)
+async def repo_detail(
+    request: Request,
+    repo: Annotated[str, Form()],
+    time_range: Annotated[str, Form()] = "all",
+) -> Response:
+    """Return detail panel for a single repository."""
+    db: Database = request.app.state.db
+    templates: Any = request.app.state.templates
+
+    if not repo:
+        return Response("")
+
+    repos = [repo]
+    after, before = parse_time_range(time_range)
+
+    rework_after = after
+    if rework_after is None and before is None:
+        rework_after = (datetime.now(timezone.utc) - timedelta(days=365)).isoformat()
+
+    readers = [await db._open_reader() for _ in range(3)]
+    try:
+        def _r(idx: int, coro: Any) -> Any:
+            return _on_reader(readers[idx % len(readers)], coro)
+
+        (
+            stats, language, contributors, total_loc,
+            velocity, code_to_comment_ratio, hotspots, rework,
+        ) = await asyncio.gather(
+            _r(0, db.get_aggregated_stats(repos, after, before)),
+            _r(1, db.get_language_breakdown(repos)),
+            _r(2, db.get_contributor_matrix(repos, after, before, limit=15)),
+            _r(0, db.get_total_loc(repos)),
+            _r(1, db.get_velocity(repos)),
+            _r(2, db.get_code_to_comment_ratio(repos)),
+            _r(0, db.get_file_hotspots(repos, after, before, limit=10)),
+            _r(1, db.get_rework_ratio(repos, rework_after, before)),
+        )
+    finally:
+        for r in readers:
+            await r.close()
+
+    return templates.TemplateResponse(
+        request,
+        name="partials/repo_detail.html",
+        context={
+            "repo": repo,
+            "stats": stats,
+            "language": language,
+            "contributors": contributors,
+            "total_loc": total_loc,
+            "velocity": velocity,
+            "code_to_comment_ratio": code_to_comment_ratio,
+            "active_contributors": len(contributors),
+            "hotspots": hotspots,
+            "rework_ratio": round(rework.get("rework_ratio", 0), 1),
+        },
+    )
+
+
 @router.post("/refresh", response_class=HTMLResponse)
 async def refresh(request: Request) -> Response:
     """Trigger an immediate background scan."""

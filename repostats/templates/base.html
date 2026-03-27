@@ -265,6 +265,71 @@ function initLanguageDetailToggle() {
     });
 }
 
+/* ---- Repo Detail Toggle ---- */
+let _activeRepo = null;
+let _pendingRepo = null;
+
+function toggleRepoDetail(repo) {
+    const panel = document.getElementById('repo-detail');
+    if (!panel) return;
+
+    /* Toggle off if clicking the same repo */
+    if (_activeRepo === repo) {
+        panel.classList.remove('open');
+        panel.innerHTML = '<span class="repo-detail-loading">Loading...</span>';
+        _setActiveRepoRow(null);
+        _activeRepo = null;
+        return;
+    }
+
+    _setActiveRepoRow(repo);
+    _activeRepo = repo;
+    _pendingRepo = repo;
+
+    /* Show loading indicator */
+    panel.innerHTML = '<span class="repo-detail-loading" style="display:block">Loading...</span>';
+    panel.classList.add('open');
+
+    /* Collect time_range from sidebar */
+    const form = document.getElementById('filter-form');
+    const formData = new FormData();
+    formData.append('repo', repo);
+    if (form) {
+        const sel = form.querySelector('select[name="time_range"]');
+        if (sel) formData.append('time_range', sel.value);
+    }
+
+    fetch('/api/repo-detail', { method: 'POST', body: formData })
+        .then(r => r.text())
+        .then(html => {
+            /* Discard stale response */
+            if (_pendingRepo !== repo) return;
+            panel.innerHTML = html;
+            panel.classList.add('open');
+            initSortable();
+        });
+}
+
+function _setActiveRepoRow(repo) {
+    const table = document.getElementById('repo-table');
+    if (!table) return;
+    table.querySelectorAll('tbody tr[data-repo]').forEach(row => {
+        row.classList.toggle('repo-row-active', row.dataset.repo === repo);
+    });
+}
+
+function initRepoDetailToggle() {
+    const table = document.getElementById('repo-table');
+    if (!table || table.dataset.repoBound) return;
+    table.dataset.repoBound = '1';
+
+    table.addEventListener('click', (e) => {
+        const row = e.target.closest('tr[data-repo]');
+        if (!row) return;
+        toggleRepoDetail(row.dataset.repo);
+    });
+}
+
 /* ---- Commit Size Histogram ---- */
 function initCommitSizeChart() {
     const data = readJSON('commit-size-data');
@@ -322,10 +387,13 @@ function initFileAgeChart() {
 function initAllCharts() {
     _activeLang = null;
     _pendingLang = null;
+    _activeRepo = null;
+    _pendingRepo = null;
     initTimeline();
     initHeatmap();
     initLanguageChart();
     initLanguageDetailToggle();
+    initRepoDetailToggle();
     initCommitSizeChart();
     initFileAgeChart();
     initSortable();
