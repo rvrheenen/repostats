@@ -1,0 +1,65 @@
+<div class="lang-detail-header">
+    <span class="lang-detail-title">{{ language }}</span>
+    <span class="lang-detail-stat">{{ total_code | commas }} lines</span>
+    <span class="lang-detail-stat">{{ comment_ratio }}% comments</span>
+    <span class="lang-detail-stat">~{{ avg_file_size | commas }} LOC/file</span>
+    <button class="btn-close-detail" onclick="toggleLanguageDetail(_activeLang)" title="Close">&times;</button>
+</div>
+
+<div class="lang-detail-grid">
+    <div>
+        <h4 class="section-subtitle">Per-repo breakdown</h4>
+        <div class="table-wrap">
+        <table class="table-compact sortable">
+            <thead>
+                <tr>
+                    <th data-sort="str">Repo</th>
+                    <th class="num" data-sort="num">Code</th>
+                    <th class="num" data-sort="num">Comment</th>
+                    <th class="num" data-sort="num">Files</th>
+                    <th class="num" data-sort="num">%</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for r in by_repo %}
+                <tr>
+                    <td>{{ r.repo }}</td>
+                    <td class="num" data-value="{{ r.code }}">{{ r.code | commas }}</td>
+                    <td class="num" data-value="{{ r.comment }}">{{ r.comment | commas }}</td>
+                    <td class="num" data-value="{{ r.files }}">{{ r.files | commas }}</td>
+                    <td class="num" data-value="{{ (r.code / total_code * 100) | round(1) if total_code else 0 }}">{{ (r.code / total_code * 100) | round(1) if total_code else 0 }}%</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+
+    <div>
+        <h4 class="section-subtitle">Largest files</h4>
+        {% if largest_files %}
+        <div class="table-wrap">
+        <table class="table-compact sortable">
+            <thead>
+                <tr>
+                    <th data-sort="str">File</th>
+                    <th data-sort="str">Repo</th>
+                    <th class="num" data-sort="num">Lines</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for f in largest_files %}
+                <tr>
+                    <td class="file-path" title="{{ f.file_path }}">{{ f.file_path }}</td>
+                    <td>{{ f.repo }}</td>
+                    <td class="num" data-value="{{ f.loc }}">{{ f.loc | commas }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <p class="muted">No per-file data available</p>
+        {% endif %}
+    </div>
+</div>

@@ -190,8 +190,78 @@ function initLanguageChart() {
         options: {
             indexAxis: 'y', responsive: true, maintainAspectRatio: false,
             plugins: { legend: { display: false } },
-            scales: { x: { beginAtZero: true } }
+            scales: { x: { beginAtZero: true } },
+            onClick(e) {
+                const els = charts['language'].getElementsAtEventForMode(e, 'nearest', { intersect: true }, false);
+                if (!els.length) return;
+                const lang = charts['language'].data.labels[els[0].index];
+                if (lang) toggleLanguageDetail(lang);
+            }
         }
+    });
+}
+
+/* ---- Language Detail Toggle ---- */
+let _activeLang = null;
+let _pendingLang = null;
+
+function toggleLanguageDetail(lang) {
+    const panel = document.getElementById('lang-detail');
+    if (!panel) return;
+
+    /* Toggle off if clicking the same language */
+    if (_activeLang === lang) {
+        panel.classList.remove('open');
+        panel.innerHTML = '<span class="lang-detail-loading htmx-indicator">Loading...</span>';
+        _setActiveLangRow(null);
+        _activeLang = null;
+        return;
+    }
+
+    _setActiveLangRow(lang);
+    _activeLang = lang;
+    _pendingLang = lang;
+
+    /* Show loading indicator */
+    panel.innerHTML = '<span class="lang-detail-loading" style="display:block">Loading...</span>';
+    panel.classList.add('open');
+
+    /* Collect checked repos from the filter form */
+    const form = document.getElementById('filter-form');
+    const formData = new FormData();
+    formData.append('language', lang);
+    if (form) {
+        form.querySelectorAll('input[name="repos"]:checked').forEach(cb => {
+            formData.append('repos', cb.value);
+        });
+    }
+
+    fetch('/api/language-detail', { method: 'POST', body: formData })
+        .then(r => r.text())
+        .then(html => {
+            /* Discard stale response */
+            if (_pendingLang !== lang) return;
+            panel.innerHTML = html;
+            panel.classList.add('open');
+            initSortable();
+        });
+}
+
+function _setActiveLangRow(lang) {
+    document.querySelectorAll('#lang-detail-table tr[data-lang]').forEach(row => {
+        row.classList.toggle('lang-row-active', row.dataset.lang === lang);
+    });
+}
+
+function initLanguageDetailToggle() {
+    const table = document.getElementById('lang-detail-table');
+    if (!table || table.dataset.langBound) return;
+    table.dataset.langBound = '1';
+
+    table.addEventListener('click', (e) => {
+        const row = e.target.closest('tr[data-lang]');
+        if (!row) return;
+        toggleLanguageDetail(row.dataset.lang);
     });
 }
 
@@ -250,9 +320,12 @@ function initFileAgeChart() {
 
 /* ---- Init all ---- */
 function initAllCharts() {
+    _activeLang = null;
+    _pendingLang = null;
     initTimeline();
     initHeatmap();
     initLanguageChart();
+    initLanguageDetailToggle();
     initCommitSizeChart();
     initFileAgeChart();
     initSortable();

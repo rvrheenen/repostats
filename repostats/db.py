@@ -881,6 +881,47 @@ class Database:
             rows = await cur.fetchall()
         return {r["repo"]: r["loc"] or 0 for r in rows}
 
+    async def get_language_detail_by_repo(
+        self, repos: list[str], language: str
+    ) -> list[dict[str, Any]]:
+        """Per-repo breakdown for a single language from latest cloc snapshot."""
+        if not repos:
+            return []
+        placeholders = ",".join("?" * len(repos))
+        sql = f"""
+            SELECT repo, code, comment, blank, files
+            FROM cloc_snapshots
+            WHERE language = ? AND (repo, scanned_at) IN (
+                SELECT repo, MAX(scanned_at) FROM cloc_snapshots
+                WHERE repo IN ({placeholders})
+                GROUP BY repo
+            )
+            ORDER BY code DESC
+        """
+        params: list[str | int] = [language] + list(repos)
+        async with self.reader.execute(sql, params) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def get_largest_files_for_language(
+        self, repos: list[str], language: str, limit: int = 15
+    ) -> list[dict[str, Any]]:
+        """Top files by LOC for a single language."""
+        if not repos:
+            return []
+        placeholders = ",".join("?" * len(repos))
+        sql = f"""
+            SELECT repo, file_path, loc
+            FROM file_stats
+            WHERE language = ? AND repo IN ({placeholders})
+            ORDER BY loc DESC
+            LIMIT ?
+        """
+        params: list[str | int] = [language] + list(repos) + [limit]
+        async with self.reader.execute(sql, params) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
     async def get_year_range(self) -> tuple[int | None, int | None]:
         """Return (min_year, max_year) from all commits, or (None, None) if empty."""
         sql = """

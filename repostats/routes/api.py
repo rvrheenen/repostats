@@ -176,6 +176,52 @@ async def aggregate(
     return templates.TemplateResponse(request, name="partials/dashboard_content.html", context=context)
 
 
+@router.post("/language-detail", response_class=HTMLResponse)
+async def language_detail(
+    request: Request,
+    language: Annotated[str, Form()],
+    repos: Annotated[list[str], Form()] = [],  # noqa: B006
+) -> Response:
+    """Return detail panel for a single language."""
+    db: Database = request.app.state.db
+    templates: Any = request.app.state.templates
+
+    if not repos or not language:
+        return Response("")
+
+    readers = [await db._open_reader() for _ in range(2)]
+    try:
+        def _r(idx: int, coro: Any) -> Any:
+            return _on_reader(readers[idx], coro)
+
+        by_repo, largest_files = await asyncio.gather(
+            _r(0, db.get_language_detail_by_repo(repos, language)),
+            _r(1, db.get_largest_files_for_language(repos, language)),
+        )
+    finally:
+        for r in readers:
+            await r.close()
+
+    total_code = sum(r["code"] for r in by_repo) or 0
+    total_comment = sum(r["comment"] for r in by_repo) or 0
+    total_files = sum(r["files"] for r in by_repo) or 0
+    comment_ratio = round(total_comment / (total_code + total_comment) * 100, 1) if (total_code + total_comment) else 0
+    avg_file_size = round(total_code / total_files) if total_files else 0
+
+    return templates.TemplateResponse(
+        request,
+        name="partials/language_detail.html",
+        context={
+            "language": language,
+            "by_repo": by_repo,
+            "largest_files": largest_files,
+            "total_code": total_code,
+            "comment_ratio": comment_ratio,
+            "avg_file_size": avg_file_size,
+        },
+    )
+
+
 @router.post("/refresh", response_class=HTMLResponse)
 async def refresh(request: Request) -> Response:
     """Trigger an immediate background scan."""

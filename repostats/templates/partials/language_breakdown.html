@@ -1,12 +1,13 @@
 <script type="application/json" id="language-data">{{ language | tojson }}</script>
 {% if language %}
+<p class="muted">Click a language row or chart bar to see per-repo details.</p>
 <div class="lang-grid">
     <div class="chart-container chart-lang">
         <canvas id="language-chart"></canvas>
     </div>
     <div class="lang-details">
         <div class="table-wrap">
-        <table class="table-compact">
+        <table id="lang-detail-table" class="table-compact">
             <thead>
                 <tr>
                     <th>Language</th>
@@ -18,7 +19,7 @@
             </thead>
             <tbody>
             {% for l in language %}
-                <tr>
+                <tr data-lang="{{ l.language }}">
                     <td>{{ l.language }}</td>
                     <td class="num">{{ l.code | commas }}</td>
                     <td class="num">{{ l.comment | commas }}</td>
@@ -31,6 +32,9 @@
         </div>
         <p class="muted">Code-to-comment ratio: <strong>{{ code_to_comment_ratio }}</strong></p>
     </div>
+</div>
+<div id="lang-detail" class="lang-detail-panel">
+    <span class="lang-detail-loading htmx-indicator">Loading...</span>
 </div>
 {% else %}
 <p class="muted">No language data yet. Is <code>cloc</code> installed?</p>
