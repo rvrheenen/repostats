@@ -222,6 +222,101 @@ async def language_detail(
     )
 
 
+@router.post("/contributor-detail", response_class=HTMLResponse)
+async def contributor_detail(
+    request: Request,
+    author: Annotated[str, Form()],
+    repos: Annotated[list[str], Form()] = [],  # noqa: B006
+    time_range: Annotated[str, Form()] = "all",
+) -> Response:
+    """Return detail panel for a single contributor."""
+    db: Database = request.app.state.db
+    templates: Any = request.app.state.templates
+
+    if not repos or not author:
+        return Response("")
+
+    after, before = parse_time_range(time_range)
+
+    readers = [await db._open_reader() for _ in range(3)]
+    try:
+        def _r(idx: int, coro: Any) -> Any:
+            return _on_reader(readers[idx % len(readers)], coro)
+
+        by_repo, by_lang, top_files, timeline, heatmap_raw = await asyncio.gather(
+            _r(0, db.get_contributor_repo_breakdown(repos, author, after, before)),
+            _r(1, db.get_contributor_language_breakdown(repos, author, after, before)),
+            _r(2, db.get_contributor_top_files(repos, author, after, before)),
+            _r(0, db.get_contributor_timeline(repos, author, after, before)),
+            _r(1, db.get_contributor_heatmap(repos, author, after, before)),
+        )
+    finally:
+        for r in readers:
+            await r.close()
+
+    # Summary stats from by_repo
+    total_commits = sum(r["commits"] for r in by_repo)
+    total_lines = sum(r["insertions"] + r["deletions"] for r in by_repo)
+    repo_count = len(by_repo)
+    avg_commit_size = round(total_lines / total_commits) if total_commits else 0
+
+    # Tenure
+    if by_repo:
+        earliest = min(r["first_commit"] for r in by_repo)
+        latest = max(r["last_commit"] for r in by_repo)
+        try:
+            d1 = datetime.fromisoformat(earliest)
+            d2 = datetime.fromisoformat(latest)
+            delta_days = max((d2 - d1).days, 0)
+            if delta_days >= 365:
+                years = delta_days // 365
+                months = (delta_days % 365) // 30
+                tenure = f"{years}y {months}m" if months else f"{years}y"
+            elif delta_days >= 30:
+                tenure = f"{delta_days // 30}m {delta_days % 30}d"
+            else:
+                tenure = f"{delta_days} days"
+        except (ValueError, TypeError):
+            tenure = "\u2014"
+    else:
+        tenure = "\u2014"
+
+    # Per-repo percentages
+    for r in by_repo:
+        r["percentage"] = round(r["commits"] / total_commits * 100, 1) if total_commits else 0
+
+    # Language percentages
+    total_lang_lines = sum(r["lines_changed"] for r in by_lang) or 1
+    for r in by_lang:
+        r["percentage"] = round(r["lines_changed"] / total_lang_lines * 100, 1)
+
+    # Heatmap grid
+    heatmap_grid: dict[tuple[int, int], int] = {}
+    heatmap_max = 0
+    for row in heatmap_raw:
+        heatmap_grid[(row["day_of_week"], row["hour"])] = row["count"]
+        heatmap_max = max(heatmap_max, row["count"])
+
+    return templates.TemplateResponse(
+        request,
+        name="partials/contributor_detail.html",
+        context={
+            "author": author,
+            "total_commits": total_commits,
+            "total_lines": total_lines,
+            "repo_count": repo_count,
+            "avg_commit_size": avg_commit_size,
+            "tenure": tenure,
+            "by_repo": by_repo,
+            "by_lang": by_lang,
+            "top_files": top_files,
+            "timeline": timeline,
+            "heatmap_grid": heatmap_grid,
+            "heatmap_max": heatmap_max,
+        },
+    )
+
+
 @router.post("/repo-detail", response_class=HTMLResponse)
 async def repo_detail(
     request: Request,

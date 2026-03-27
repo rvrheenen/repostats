@@ -1,0 +1,154 @@
+<div class="contributor-detail-header">
+    <span class="contributor-detail-title">{{ author }}</span>
+    <span class="contributor-detail-stat">{{ total_commits | commas }} commits</span>
+    <span class="contributor-detail-stat">{{ total_lines | commas }} lines</span>
+    <span class="contributor-detail-stat">{{ repo_count }} repos</span>
+    <span class="contributor-detail-stat">~{{ avg_commit_size | commas }} lines/commit</span>
+    <span class="contributor-detail-stat">{{ tenure }}</span>
+    <button class="btn-close-detail" onclick="toggleContributorDetail(_activeContributor)" title="Close">&times;</button>
+</div>
+
+<div class="contributor-detail-grid">
+    <div>
+        <h4 class="section-subtitle">Per-repo breakdown</h4>
+        {% if by_repo %}
+        <div class="table-wrap">
+        <table class="table-compact sortable">
+            <thead>
+                <tr>
+                    <th data-sort="str">Repo</th>
+                    <th class="num" data-sort="num">Commits</th>
+                    <th class="num" data-sort="num">+Ins</th>
+                    <th class="num" data-sort="num">-Del</th>
+                    <th class="num" data-sort="num">Files</th>
+                    <th class="num" data-sort="num">%</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for r in by_repo %}
+                <tr>
+                    <td>{{ r.repo }}</td>
+                    <td class="num" data-value="{{ r.commits }}">{{ r.commits | commas }}</td>
+                    <td class="num add" data-value="{{ r.insertions }}">+{{ r.insertions | commas }}</td>
+                    <td class="num del" data-value="{{ r.deletions }}">-{{ r.deletions | commas }}</td>
+                    <td class="num" data-value="{{ r.files_changed }}">{{ r.files_changed | commas }}</td>
+                    <td class="num" data-value="{{ r.percentage }}">{{ r.percentage }}%</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <p class="muted">No data</p>
+        {% endif %}
+    </div>
+
+    <div>
+        <h4 class="section-subtitle">Language distribution</h4>
+        {% if by_lang %}
+        <div class="table-wrap">
+        <table class="table-compact sortable">
+            <thead>
+                <tr>
+                    <th data-sort="str">Language</th>
+                    <th class="num" data-sort="num">Lines Changed</th>
+                    <th class="num" data-sort="num">Files Touched</th>
+                    <th class="num" data-sort="num">%</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for r in by_lang %}
+                <tr>
+                    <td>{{ r.language }}</td>
+                    <td class="num" data-value="{{ r.lines_changed }}">{{ r.lines_changed | commas }}</td>
+                    <td class="num" data-value="{{ r.files_touched }}">{{ r.files_touched | commas }}</td>
+                    <td class="num" data-value="{{ r.percentage }}">{{ r.percentage }}%</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <p class="muted">No data</p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="contributor-detail-grid">
+    <div>
+        <h4 class="section-subtitle">Activity</h4>
+        {% if timeline %}
+        <div class="contrib-timeline-wrap">
+            <canvas id="contrib-timeline-chart"></canvas>
+        </div>
+        <script id="contrib-timeline-data" type="application/json">{{ timeline | tojson }}</script>
+        {% else %}
+        <p class="muted">No data</p>
+        {% endif %}
+    </div>
+
+    <div>
+        <h4 class="section-subtitle">Commit patterns</h4>
+        {% if heatmap_max > 0 %}
+        <table class="mini-heatmap">
+            <thead>
+                <tr>
+                    <th></th>
+                    {% for h in range(24) %}
+                    <th>{{ h }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+            {% set days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}
+            {% for day in range(7) %}
+                <tr>
+                    <th>{{ days[day] }}</th>
+                    {% for hour in range(24) %}
+                    {% set count = heatmap_grid.get((day, hour), 0) %}
+                    {% set t = count / heatmap_max if heatmap_max > 0 else 0 %}
+                    <td style="background: var(--hm-{{ 0 if t == 0 else (1 if t < 0.25 else (2 if t < 0.5 else (3 if t < 0.75 else 4))) }})"
+                        title="{{ count }} commits">
+                    </td>
+                    {% endfor %}
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="muted">No data</p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="contributor-detail-files">
+    <h4 class="section-subtitle">Most-touched files</h4>
+    {% if top_files %}
+    <div class="table-wrap">
+    <table class="table-compact sortable">
+        <thead>
+            <tr>
+                <th data-sort="str">File</th>
+                <th data-sort="str">Repo</th>
+                <th class="num" data-sort="num">Changes</th>
+                <th class="num" data-sort="num">+Ins</th>
+                <th class="num" data-sort="num">-Del</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for f in top_files %}
+            <tr>
+                <td class="file-path" title="{{ f.file_path }}">{{ f.file_path }}</td>
+                <td>{{ f.repo }}</td>
+                <td class="num" data-value="{{ f.change_count }}">{{ f.change_count | commas }}</td>
+                <td class="num add" data-value="{{ f.insertions }}">+{{ f.insertions | commas }}</td>
+                <td class="num del" data-value="{{ f.deletions }}">-{{ f.deletions | commas }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+    <p class="muted">No data</p>
+    {% endif %}
+</div>

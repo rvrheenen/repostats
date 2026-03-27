@@ -28,6 +28,8 @@
     </label>
 </div>
 
+<p class="muted">Click a contributor row to see per-repo, language, and activity details.</p>
+
 <div class="table-wrap">
 <table id="contributor-table" class="sortable"
        data-grand-commits="{{ grand_total_commits }}"
@@ -47,7 +49,8 @@
     </thead>
     <tbody>
     {% for c in contributors %}
-        <tr data-commits="{{ c.total_commits }}"
+        <tr data-author="{{ c.author }}"
+            data-commits="{{ c.total_commits }}"
             data-lines="{{ c.total_lines }}">
             <td>{{ c.author }}</td>
             {% for repo in selected_repos %}
@@ -66,6 +69,8 @@
     </tbody>
 </table>
 </div>
+
+<div id="contributor-detail" class="contributor-detail-panel"></div>
 
 {% else %}
 <p class="muted">No contributor data yet.</p>

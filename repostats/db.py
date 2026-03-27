@@ -922,6 +922,112 @@ class Database:
             rows = await cur.fetchall()
         return [dict(r) for r in rows]
 
+    async def get_contributor_repo_breakdown(
+        self, repos: list[str], author: str, after: str | None = None, before: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Per-repo breakdown for a single contributor."""
+        if not repos:
+            return []
+        placeholders, date_filter, params = _repo_filter(repos, after, before)
+        full_params: list[str | int] = [author] + params
+        sql = f"""
+            SELECT repo, COUNT(*) AS commits,
+                   SUM(insertions) AS insertions, SUM(deletions) AS deletions,
+                   SUM(files_changed) AS files_changed,
+                   MIN(date) AS first_commit, MAX(date) AS last_commit
+            FROM commits
+            WHERE author = ? AND repo IN ({placeholders}) {date_filter}
+            GROUP BY repo ORDER BY commits DESC
+        """
+        async with self.reader.execute(sql, full_params) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def get_contributor_language_breakdown(
+        self, repos: list[str], author: str, after: str | None = None, before: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Language distribution for a single contributor."""
+        if not repos:
+            return []
+        placeholders, date_filter, params = _repo_filter(repos, after, before)
+        full_params: list[str | int] = [author] + params
+        sql = f"""
+            SELECT fs.language,
+                   SUM(fc.insertions + fc.deletions) AS lines_changed,
+                   COUNT(DISTINCT fc.file_path) AS files_touched
+            FROM file_changes fc
+            JOIN commits c ON c.repo = fc.repo AND c.hash = fc.commit_hash
+            JOIN file_stats fs ON fs.repo = fc.repo AND fs.file_path = fc.file_path
+            WHERE c.author = ? AND c.repo IN ({placeholders}) {date_filter}
+              AND fs.language IS NOT NULL
+            GROUP BY fs.language ORDER BY lines_changed DESC
+        """
+        async with self.reader.execute(sql, full_params) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def get_contributor_top_files(
+        self, repos: list[str], author: str, after: str | None = None, before: str | None = None,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Most-touched files for a single contributor."""
+        if not repos:
+            return []
+        placeholders, date_filter, params = _repo_filter(repos, after, before)
+        full_params: list[str | int] = [author] + params + [limit]
+        sql = f"""
+            SELECT fc.repo, fc.file_path, COUNT(*) AS change_count,
+                   SUM(fc.insertions) AS insertions, SUM(fc.deletions) AS deletions
+            FROM file_changes fc
+            JOIN commits c ON c.repo = fc.repo AND c.hash = fc.commit_hash
+            WHERE c.author = ? AND c.repo IN ({placeholders}) {date_filter}
+            GROUP BY fc.repo, fc.file_path ORDER BY change_count DESC LIMIT ?
+        """
+        async with self.reader.execute(sql, full_params) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def get_contributor_timeline(
+        self, repos: list[str], author: str, after: str | None = None, before: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Monthly commit timeline for a single contributor."""
+        if not repos:
+            return []
+        placeholders, date_filter, params = _repo_filter(repos, after, before)
+        full_params: list[str | int] = [author] + params
+        sql = f"""
+            SELECT strftime('%Y-%m', date) AS period,
+                   COUNT(*) AS commits,
+                   SUM(insertions) AS insertions,
+                   SUM(deletions) AS deletions
+            FROM commits
+            WHERE author = ? AND repo IN ({placeholders}) {date_filter}
+            GROUP BY period ORDER BY period
+        """
+        async with self.reader.execute(sql, full_params) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def get_contributor_heatmap(
+        self, repos: list[str], author: str, after: str | None = None, before: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Hour x day-of-week commit counts for a single contributor."""
+        if not repos:
+            return []
+        placeholders, date_filter, params = _repo_filter(repos, after, before)
+        full_params: list[str | int] = [author] + params
+        sql = f"""
+            SELECT CAST(strftime('%H', date) AS INTEGER) AS hour,
+                   (CAST(strftime('%w', date) AS INTEGER) + 6) % 7 AS day_of_week,
+                   COUNT(*) AS count
+            FROM commits
+            WHERE author = ? AND repo IN ({placeholders}) {date_filter}
+            GROUP BY day_of_week, hour
+        """
+        async with self.reader.execute(sql, full_params) as cur:
+            rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
     async def get_year_range(self) -> tuple[int | None, int | None]:
         """Return (min_year, max_year) from all commits, or (None, None) if empty."""
         sql = """
