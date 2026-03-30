@@ -574,8 +574,9 @@ function initContribToggle() {
         });
     });
 
-    // Initial render
-    apply('commits');
+    // Initial render – respect the currently active toggle button
+    const activeBtn = document.querySelector('.contrib-toggle .toggle-btn.active');
+    apply(activeBtn ? activeBtn.dataset.mode : 'commits');
     // Apply initial limit from selector
     const sel = document.querySelector('.contrib-limit-select');
     if (sel) applyContribLimit(sel.value);
